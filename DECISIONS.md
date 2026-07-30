@@ -5,6 +5,33 @@ baru di atas.
 
 ---
 
+## 2026-07-31 · Iterasi 7 — layar depan menampilkan HASIL, bukan jumlah
+
+### Celah yang ditutup
+
+Sampai iterasi 6, laporan menjawab "berapa kali agent jalan" tapi tidak "apa
+yang mereka hasilkan". Pertanyaan kedua itulah alasan layar depan berupa
+laporan dan bukan kotak chat — tanpa panel ini, *reporting-first* cuma tata
+letak yang berbeda.
+
+### Keputusan
+
+| Keputusan | Alasan |
+|---|---|
+| **Hanya sesi TERBARU tiap karyawan yang dibuka isinya** | Membuka semuanya berarti satu request per sesi seumur hidup agent. Layar depan akan melambat seiring kantor makin produktif — persis kebalikan dari yang seharusnya terjadi. |
+| **Penanda "terjadwal" vs "diminta" dari `dispatch.target.session_id`** | Diambil dari job yang sudah di-fetch, jadi gratis. Dan itu penanda yang TEPAT — menebak dari pola nama `session_id` akan meleset untuk jadwal yang dibuat di luar Clawmpany. |
+| **Cuplikan dibersihkan dari penanda markdown, bukan dirender** | Dirender penuh mengubah laporan jadi dokumen; dibiarkan mentah membuat laporan terbaca seperti berkas mentah. Penandanya dibuang, isinya tetap. |
+| **Panel hasil di ATAS daftar karyawan** | Yang dicari orang saat membuka halaman ini di pagi hari adalah apa yang terjadi semalam, bukan siapa saja yang dia pekerjakan. |
+
+### Diverifikasi
+
+`ReportView` dirender dengan data produksi nyata (roster `clawmpany` +
+`archylabs`) lewat route sementara: dua hasil kerja tampil dengan cuplikan
+benar, penanda "diminta" tepat, headcount/aktivitas/butuh-keputusan semuanya
+terisi. Route probe sudah dihapus dan dipastikan 404.
+
+---
+
 ## 2026-07-31 · Iterasi 6 — semua perusahaan dalam satu layar (`/semua`)
 
 ### Kenapa
