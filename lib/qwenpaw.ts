@@ -84,7 +84,7 @@ async function get<T>(
 }
 
 async function send<T>(
-  method: "POST" | "PUT" | "DELETE",
+  method: "POST" | "PUT" | "PATCH" | "DELETE",
   path: string,
   body?: unknown,
   agentId?: string,
@@ -363,9 +363,109 @@ export async function readCronState(
 
 // ── Peralatan (MCP) ─────────────────────────────────────────────
 
-export async function listMcpServers(): Promise<McpServer[]> {
-  const raw = await get<unknown>("/api/mcp", { soft404: true });
+/**
+ * Peralatan yang terpasang pada SATU karyawan.
+ *
+ * Terverifikasi 2026-07-31: konfigurasi MCP di QwenPaw memang per-agent, bukan
+ * global se-instance — client yang dibuat dengan `X-Agent-Id: clawmpany` tidak
+ * muncul saat didaftar dengan `X-Agent-Id: default`. Karena itu "peralatan per
+ * karyawan" bisa dimodelkan apa adanya, tanpa lapisan pemetaan sendiri.
+ */
+export async function listMcpServers(agentId?: string): Promise<McpServer[]> {
+  const raw = await get<unknown>("/api/mcp", { agentId, soft404: true });
   return asArray<McpServer>(raw, "servers");
+}
+
+/** Definisi satu peralatan yang dikirim saat memasang. */
+export interface McpClientSpec {
+  name: string;
+  description?: string;
+  transport: "stdio" | "http" | "sse";
+  command?: string;
+  args?: string[];
+  env?: Record<string, string>;
+  url?: string;
+  headers?: Record<string, string>;
+  enabled?: boolean;
+}
+
+/**
+ * Pasang peralatan pada satu karyawan.
+ *
+ * PENTING: ini TIDAK menghubungi server MCP-nya — QwenPaw cuma menulis
+ * konfigurasi. Jadi 200 di sini bukan bukti peralatannya hidup; satu-satunya
+ * tes koneksi sungguhan adalah `probeMcpTools()`.
+ */
+export async function installMcpServer(
+  agentId: string,
+  key: string,
+  client: McpClientSpec,
+): Promise<void> {
+  await send("POST", "/api/mcp", { client_key: key, client }, agentId);
+}
+
+export async function uninstallMcpServer(agentId: string, key: string): Promise<void> {
+  await send("DELETE", `/api/mcp/${encodeURIComponent(key)}`, undefined, agentId);
+}
+
+/**
+ * Nyalakan/matikan peralatan. Endpoint QwenPaw `PATCH /api/mcp/toggle/{key}`
+ * MEMBALIK nilai dan tidak membaca body, jadi memanggilnya dengan niat "set
+ * true" akan mematikan peralatan yang sudah menyala. Fungsi ini membacanya
+ * dulu dan hanya membalik bila memang beda — supaya UI yang state-nya basi
+ * tidak menghasilkan kebalikan dari yang diklik.
+ */
+export async function setMcpEnabled(
+  agentId: string,
+  key: string,
+  enabled: boolean,
+): Promise<void> {
+  const current = (await listMcpServers(agentId)).find((s) => s.key === key);
+  if (!current) throw new QwenPawError(`Peralatan "${key}" tidak terpasang.`, 404);
+  if (current.enabled === enabled) return;
+  await send("PATCH", `/api/mcp/toggle/${encodeURIComponent(key)}`, undefined, agentId);
+}
+
+export interface McpProbe {
+  ok: boolean;
+  tools: string[];
+  message?: string;
+}
+
+/**
+ * Tes koneksi sungguhan: QwenPaw menyalakan driver, handshake ke server MCP,
+ * lalu mengembalikan daftar tool-nya.
+ *
+ * Tiga hasil yang berbeda artinya:
+ *   200 + tool   → tersambung
+ *   200 + kosong → peralatannya sedang dimatikan
+ *   502          → tidak bisa dihubungi; pesan aslinya ikut ditampilkan
+ */
+export async function probeMcpTools(agentId: string, key: string): Promise<McpProbe> {
+  try {
+    const raw = await get<unknown>(`/api/mcp/tools/${encodeURIComponent(key)}`, {
+      agentId,
+      soft404: true,
+    });
+    const list = asArray<unknown>(raw, "tools");
+    const tools = list
+      .map((t) =>
+        typeof t === "string"
+          ? t
+          : ((t as Record<string, unknown>)?.name as string | undefined),
+      )
+      .filter((n): n is string => Boolean(n));
+    if (tools.length === 0) {
+      return { ok: false, tools: [], message: "Tersambung tapi tidak ada tool — peralatan ini sedang dimatikan." };
+    }
+    return { ok: true, tools };
+  } catch (e) {
+    return {
+      ok: false,
+      tools: [],
+      message: e instanceof Error ? e.message : "Tidak bisa menghubungi server peralatan.",
+    };
+  }
 }
 
 /** Apakah instance-nya terkonfigurasi sama sekali. */

@@ -2,6 +2,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 
 import { Thread } from "@/components/chat/thread";
+import { EquipmentPanel } from "@/components/office/equipment-panel";
 import { OfficeHeader } from "@/components/office/header";
 import { TermBlock, TermGutter } from "@/components/terminal/primitives";
 import { authEnabled, currentOffice } from "@/lib/office";
@@ -123,6 +124,8 @@ export default async function AgentPage({
             </ul>
           )}
         </TermBlock>
+
+        <EquipmentPanel agentId={id} />
 
         <TermBlock label="Pekerjaan terakhir">
           {sessions.length === 0 ? (

@@ -166,6 +166,8 @@ function StaffPanel({ staff }: { staff: StaffMember[] }) {
                 <span className="text-term-dim ml-auto text-[11px]">
                   {s.scheduleCount > 0 ? `${s.scheduleCount} jadwal` : "tanpa jadwal"}
                   {" · "}
+                  {s.toolCount > 0 ? `${s.toolCount} alat` : "tanpa alat"}
+                  {" · "}
                   {s.recentSessions > 0 ? `${s.recentSessions} sesi/24j` : "diam"}
                 </span>
               </div>

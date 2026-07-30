@@ -19,6 +19,7 @@ import {
   listAgents,
   listChats,
   listCronJobs,
+  listMcpServers,
   looksUnconfigured,
   readCronState,
   type QwenPawAgent,
@@ -46,6 +47,8 @@ export interface StaffMember {
   configured: boolean;
   /** Jadwal aktif yang dimiliki agent ini. */
   scheduleCount: number;
+  /** Peralatan (MCP) yang menyala. Nol = hanya bisa menalar, tidak menyentuh data. */
+  toolCount: number;
   /** Sesi kerja dalam 24 jam terakhir. */
   recentSessions: number;
   lastActiveAt: string | null;
@@ -130,9 +133,10 @@ export async function buildReport(office: Office): Promise<OfficeReport> {
       // Clawmpany. Itu keadaan nyata, jadi dilaporkan, bukan disembunyikan.
       if (!agent) return { missing: agentId } as const;
 
-      const [chats, jobs] = await Promise.all([
+      const [chats, jobs, tools] = await Promise.all([
         listChats(agentId).catch(() => []),
         listCronJobs(agentId).catch(() => []),
+        listMcpServers(agentId).catch(() => []),
       ]);
 
       const states = await Promise.all(
@@ -142,7 +146,7 @@ export async function buildReport(office: Office): Promise<OfficeReport> {
         })),
       );
 
-      return { agent, chats, states } as const;
+      return { agent, chats, states, tools } as const;
     }),
   );
 
@@ -163,12 +167,13 @@ export async function buildReport(office: Office): Promise<OfficeReport> {
       continue;
     }
 
-    const { agent, chats, states } = row;
+    const { agent, chats, states, tools } = row;
     const recent = chats.filter((c) => isRecent(c.updated_at));
     const lastActiveAt =
       chats.map((c) => c.updated_at).sort().at(-1) ?? null;
     const configured = !looksUnconfigured(agent.description || "");
     const enabledJobs = states.filter(({ job }) => job.enabled);
+    const activeTools = tools.filter((t) => t.enabled).length;
 
     sessions24h += recent.length;
     if (recent.length > 0) activeAgents24h += 1;
@@ -180,6 +185,7 @@ export async function buildReport(office: Office): Promise<OfficeReport> {
       model: agent.active_model?.model ?? null,
       configured,
       scheduleCount: enabledJobs.length,
+      toolCount: activeTools,
       recentSessions: recent.length,
       lastActiveAt,
     });
@@ -223,6 +229,14 @@ export async function buildReport(office: Office): Promise<OfficeReport> {
         level: "idle",
         headline: `${agent.name} tidak punya jadwal kerja.`,
         action: "Beri jadwal supaya dia bekerja tanpa kamu buka aplikasi ini.",
+        agentId: agent.id,
+      });
+    } else if (activeTools === 0) {
+      attention.push({
+        level: "idle",
+        headline: `${agent.name} bekerja tanpa peralatan.`,
+        action:
+          "Pasang peralatan supaya dia menyentuh data sungguhan, bukan menalar dari ingatan.",
         agentId: agent.id,
       });
     }

@@ -5,6 +5,50 @@ baru di atas.
 
 ---
 
+## 2026-07-31 · Iterasi 2 — peralatan (MCP) jadi utilitas gedung
+
+### Fakta yang diverifikasi dulu
+
+Sebelum menulis kode, dua hal diuji langsung ke `paw.wheza.id`:
+
+1. **Konfigurasi MCP di QwenPaw itu per-agent, bukan global se-instance.**
+   Client yang dibuat dengan `X-Agent-Id: clawmpany` tidak muncul saat didaftar
+   dengan `X-Agent-Id: default`. Ini yang membuat "peralatan per karyawan" bisa
+   dimodelkan apa adanya — tanpa lapisan pemetaan sendiri. (Daftar kedua agent
+   sempat terlihat identik, tapi itu kebetulan: keduanya hanya punya `tavily_search`.)
+2. **`PATCH /api/mcp/toggle/{key}` MEMBALIK nilai, tidak menyetel**, dan tidak
+   membaca body. Memanggilnya dengan niat "nyalakan" akan mematikan peralatan
+   yang sudah menyala. `setMcpEnabled()` membungkusnya jadi set-idempoten.
+3. **Memasang MCP tidak pernah menghubungi servernya.** QwenPaw hanya menulis
+   konfigurasi, jadi 200 bukan bukti peralatan itu hidup. Satu-satunya tes
+   koneksi sungguhan adalah `GET /api/mcp/tools/{key}` — dan tiga hasilnya
+   punya arti berbeda: ada tool = tersambung, kosong = dimatikan, 502 = tidak
+   terjangkau.
+
+### Keputusan
+
+| Keputusan | Alasan |
+|---|---|
+| **Panel peralatan menampilkan status SAMBUNGAN, bukan status konfigurasi** | Karena fakta ke-3 di atas. Panel yang menyamakan keduanya akan memberi centang hijau pada peralatan yang sebenarnya mati. |
+| **Alamat peralatan dari env, tidak di-hardcode** | Domain tiap instance berbeda dan sebagian belum tetap. Menebak menghasilkan peralatan yang tampak tersedia lalu gagal saat dipasang. |
+| **Peralatan yang belum siap tetap TAMPIL** | Ditandai "belum siap" + nama env yang kurang. Menyembunyikannya berarti menyembunyikan bahwa gedung ini punya utilitas itu. |
+| **Pasang ditolak 409 kalau env kosong** | Lebih baik daripada diterima lalu gagal diam-diam. |
+| **"Bekerja tanpa peralatan" masuk daftar butuh-keputusan** | Bentuk ketiga dari karyawan yang tidak menghasilkan apa-apa, setelah "tanpa identitas" dan "tanpa jadwal". |
+
+### Katalog awal
+
+`washarp_whatsapp` (WhatsApp — produk sendiri), `tavily_web` (pencarian web),
+`pabrik_chats` (arsip percakapan — produk sendiri). Dua dari tiga adalah tool
+buatan sendiri: inilah bentuk konkret "Clawmpany jadi kanal distribusi 100
+startup MCP-first".
+
+### Env baru di Coolify (opsional, per peralatan)
+
+`CLAWMPANY_MCP_WASHARP_URL` / `_TOKEN`, `CLAWMPANY_MCP_TAVILY_KEY`,
+`CLAWMPANY_MCP_PABRIK_URL` / `_TOKEN`.
+
+---
+
 ## 2026-07-31 · Iterasi 1 — laporan jadi layar depan
 
 ### Kenapa pivot
