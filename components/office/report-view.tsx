@@ -1,7 +1,13 @@
 import Link from "next/link";
 
 import { TermBlock, TermGutter } from "@/components/terminal/primitives";
-import type { AttentionItem, OfficeReport, ScheduleRow, StaffMember } from "@/lib/report";
+import type {
+  AttentionItem,
+  OfficeReport,
+  ScheduleRow,
+  StaffMember,
+  WorkItem,
+} from "@/lib/report";
 import { cn } from "@/lib/utils";
 
 /**
@@ -62,6 +68,7 @@ export function ReportView({ report }: { report: OfficeReport }) {
         />
       </div>
 
+      <WorkPanel items={report.work} />
       <StaffPanel staff={staff} />
       <SchedulePanel rows={schedules} />
     </div>
@@ -140,6 +147,59 @@ function Stat({
       </div>
       <div className="text-term-dim mt-1.5 text-[11px]">{detail}</div>
     </div>
+  );
+}
+
+// ── Hasil kerja ─────────────────────────────────────────────────
+
+/**
+ * Apa yang benar-benar dihasilkan karyawan, bukan berapa kali mereka jalan.
+ *
+ * Angka "14 sesi" tidak menjawab pertanyaan yang membuat orang membuka halaman
+ * ini di pagi hari — dia ingin tahu APA yang terjadi semalam. Panel inilah
+ * alasan layar depan berupa laporan dan bukan kotak chat; tanpa isinya,
+ * "reporting-first" cuma tata letak yang berbeda.
+ */
+function WorkPanel({ items }: { items: WorkItem[] }) {
+  if (items.length === 0) {
+    return (
+      <TermBlock label="Hasil kerja" tone="dim">
+        <p className="text-term-dim text-xs">
+          Belum ada satu pun. Begitu karyawan menjalankan jadwalnya, hasilnya
+          muncul di sini — dan inilah halaman yang perlu kamu buka tiap pagi.
+        </p>
+      </TermBlock>
+    );
+  }
+
+  return (
+    <TermBlock label={`Hasil kerja · ${items.length}`}>
+      <ul className="divide-border divide-y">
+        {items.map((w) => (
+          <li key={`${w.agentId}:${w.at ?? w.title}`} className="py-2.5 first:pt-0 last:pb-0">
+            <div className="flex flex-wrap items-baseline gap-x-2">
+              <Link
+                href={`/agent/${encodeURIComponent(w.agentId)}`}
+                className="hover:text-term-prompt text-sm transition-colors"
+              >
+                {w.agentName}
+              </Link>
+              <span className="text-term-dim text-xs">{w.title}</span>
+              <span className="text-term-dim ml-auto text-[11px]">
+                <span className={w.scheduled ? "text-term-prompt" : "text-term-dim"}>
+                  {w.scheduled ? "terjadwal" : "diminta"}
+                </span>
+                {w.at ? ` · ${shortTime(w.at)}` : ""}
+              </span>
+            </div>
+            <p className="text-term-dim mt-1 max-h-32 overflow-hidden text-xs whitespace-pre-wrap">
+              {w.excerpt.slice(0, 600)}
+              {w.excerpt.length > 600 ? "…" : ""}
+            </p>
+          </li>
+        ))}
+      </ul>
+    </TermBlock>
   );
 }
 

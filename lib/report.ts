@@ -21,6 +21,7 @@ import {
   listCronJobs,
   listMcpServers,
   looksUnconfigured,
+  readChat,
   readCronState,
   type QwenPawAgent,
 } from "@/lib/qwenpaw";
@@ -67,6 +68,18 @@ export interface ScheduleRow {
   lastError: string | null;
 }
 
+export interface WorkItem {
+  agentId: string;
+  agentName: string;
+  /** Judul sesi tempat pekerjaan ini ditulis. */
+  title: string;
+  /** Keluaran terakhir agent di sesi itu — apa yang sebenarnya dia hasilkan. */
+  excerpt: string;
+  at: string | null;
+  /** Hasil jadwal (dia bekerja sendiri) atau percakapan (kamu yang menyuruh). */
+  scheduled: boolean;
+}
+
 export interface OfficeReport {
   officeName: string;
   /** Kantor belum punya karyawan sama sekali. Layar depan jadi onboarding. */
@@ -75,6 +88,8 @@ export interface OfficeReport {
   activity: { sessions24h: number; activeAgents24h: number };
   schedules: ScheduleRow[];
   staff: StaffMember[];
+  /** Apa yang benar-benar dihasilkan, terbaru dulu. Inti layar depan. */
+  work: WorkItem[];
   attention: AttentionItem[];
   /** Terisi kalau QwenPaw tidak bisa dihubungi — UI menjelaskan, bukan kosong. */
   error?: string;
@@ -91,6 +106,27 @@ function roleOf(agent: QwenPawAgent): string {
   const head = desc.split(" | ")[0].trim();
   if (!head || head.startsWith("- **Name:**")) return "Belum ada jabatan";
   return head.length > 90 ? `${head.slice(0, 87)}…` : head;
+}
+
+/**
+ * Bersihkan penanda markdown dari cuplikan hasil kerja.
+ *
+ * Cuplikan ditampilkan sebagai teks polos, bukan dirender — merender markdown
+ * penuh di layar depan akan mengubah laporan jadi dokumen. Tapi membiarkan
+ * penandanya terlihat (`**tebal**`, `## judul`) membuat laporan yang seharusnya
+ * rapi terbaca seperti berkas mentah. Jadi penandanya dibuang, isinya tetap.
+ */
+function plainText(md: string): string {
+  return md
+    .replace(/```[\s\S]*?```/g, "[kode]")
+    .replace(/`([^`]+)`/g, "$1")
+    .replace(/^#{1,6}\s+/gm, "")
+    .replace(/\*\*([^*]+)\*\*/g, "$1")
+    .replace(/(^|\s)\*([^*\n]+)\*/g, "$1$2")
+    .replace(/^\s*[-*+]\s+/gm, "— ")
+    .replace(/\[([^\]]+)\]\([^)]*\)/g, "$1")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
 }
 
 function isRecent(iso: string | null | undefined): boolean {
@@ -185,6 +221,7 @@ export async function buildReport(office: Office): Promise<OfficeReport> {
     activity: { sessions24h: 0, activeAgents24h: 0 },
     schedules: [],
     staff: [],
+    work: [],
     attention: [],
   };
 
@@ -219,12 +256,47 @@ export async function buildReport(office: Office): Promise<OfficeReport> {
         })),
       );
 
-      return { agent, chats, states, tools } as const;
+      // Sesi mana yang ditulis oleh jadwal. Diambil dari job yang SUDAH
+      // di-fetch di atas, jadi tidak ada request tambahan — dan ini penanda
+      // yang tepat, bukan tebakan dari pola nama session_id (jadwal yang
+      // dibuat di luar Clawmpany tidak mengikuti pola itu).
+      const scheduledSessions = new Set(
+        jobs
+          .map((j) => j.dispatch?.target?.session_id)
+          .filter((s): s is string => Boolean(s)),
+      );
+
+      // Isi sesi TERBARU saja yang dibuka. Membuka semuanya berarti satu
+      // request per sesi seumur hidup agent — layar depan akan melambat
+      // seiring kantor makin produktif, yang persis kebalikan dari yang
+      // seharusnya terjadi.
+      const newest = [...chats].sort((a, b) =>
+        (b.updated_at ?? "").localeCompare(a.updated_at ?? ""),
+      )[0];
+
+      let work: WorkItem | null = null;
+      if (newest) {
+        const messages = await readChat(agentId, newest.id).catch(() => []);
+        const reply = messages.filter((m) => m.role === "assistant").at(-1);
+        if (reply?.text) {
+          work = {
+            agentId,
+            agentName: agent.name,
+            title: newest.name || "Tanpa judul",
+            excerpt: plainText(reply.text),
+            at: newest.updated_at ?? reply.timestamp,
+            scheduled: scheduledSessions.has(newest.session_id),
+          };
+        }
+      }
+
+      return { agent, chats, states, tools, work } as const;
     }),
   );
 
   const staff: StaffMember[] = [];
   const schedules: ScheduleRow[] = [];
+  const work: WorkItem[] = [];
   const attention: AttentionItem[] = [];
   let sessions24h = 0;
   let activeAgents24h = 0;
@@ -240,7 +312,8 @@ export async function buildReport(office: Office): Promise<OfficeReport> {
       continue;
     }
 
-    const { agent, chats, states, tools } = row;
+    const { agent, chats, states, tools, work: item } = row;
+    if (item) work.push(item);
     const recent = chats.filter((c) => isRecent(c.updated_at));
     const lastActiveAt =
       chats.map((c) => c.updated_at).sort().at(-1) ?? null;
@@ -325,6 +398,10 @@ export async function buildReport(office: Office): Promise<OfficeReport> {
     return (a.nextRunAt ?? "9999").localeCompare(b.nextRunAt ?? "9999");
   });
 
+  // Terbaru dulu. Yang paling atas adalah hal terakhir yang terjadi di
+  // perusahaan ini — itulah yang orang cari saat membuka halaman.
+  work.sort((a, b) => (b.at ?? "").localeCompare(a.at ?? ""));
+
   return {
     officeName: office.name,
     empty: false,
@@ -336,6 +413,7 @@ export async function buildReport(office: Office): Promise<OfficeReport> {
     activity: { sessions24h, activeAgents24h },
     schedules,
     staff,
+    work,
     attention,
   };
 }
