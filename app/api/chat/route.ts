@@ -11,6 +11,9 @@
 // deltas, {object:"message", type:"reasoning"|"message"} block openers, a
 // final {object:"response", status:"completed"} event, and {status:"failed"}.
 
+import { currentOffice } from "@/lib/office";
+import { CONCIERGE_AGENT_ID } from "@/lib/qwenpaw";
+
 export const runtime = "nodejs";
 
 // Env reads prefer QWENPAW_* because that is the naming already provisioned on
@@ -31,7 +34,7 @@ function newSessionId(): string {
 }
 
 export async function POST(req: Request) {
-  let body: { message?: unknown; sessionId?: unknown };
+  let body: { message?: unknown; sessionId?: unknown; agentId?: unknown };
   try {
     body = await req.json();
   } catch {
@@ -54,9 +57,30 @@ export async function POST(req: Request) {
       ? body.sessionId.trim()
       : newSessionId();
 
+  // Agent mana yang menjawab. Klien boleh MEMINTA, server yang memutuskan:
+  // hanya manajer gedung dan karyawan yang benar-benar ada di roster kantor si
+  // pemanggil yang boleh dituju. Tanpa gate ini, mengubah satu field di
+  // DevTools akan membuka agent milik penyewa lain di instance yang sama.
+  const requested = typeof body.agentId === "string" ? body.agentId.trim() : "";
+  let agentId = PAW_AGENT_ID;
+  if (requested) {
+    if (requested === CONCIERGE_AGENT_ID) {
+      agentId = requested;
+    } else {
+      const office = await currentOffice();
+      if (!office.roster.includes(requested)) {
+        return new Response("Karyawan itu bukan penghuni kantor ini.", {
+          status: 403,
+          headers: { "content-type": "text/plain" },
+        });
+      }
+      agentId = requested;
+    }
+  }
+
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
-    "X-Agent-Id": PAW_AGENT_ID,
+    "X-Agent-Id": agentId,
     Accept: "text/event-stream",
   };
   if (PAW_AUTH_TOKEN) headers["Authorization"] = `Bearer ${PAW_AUTH_TOKEN}`;

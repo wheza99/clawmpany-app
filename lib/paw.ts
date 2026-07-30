@@ -12,6 +12,11 @@ const STREAM_IDLE_MS = 90_000;
 
 export interface ChatStreamOptions {
   signal?: AbortSignal;
+  /**
+   * Karyawan yang dituju. Server MEMERIKSA ULANG id ini terhadap roster kantor
+   * si pemanggil — nilai di sini adalah permintaan, bukan izin.
+   */
+  agentId?: string;
   /** Full visible answer so far (overwritten each delta, never appended). */
   onText?: (fullText: string) => void;
   /** Full reasoning text so far (collapsed "thinking" block). */
@@ -84,7 +89,7 @@ export async function chatStream(
       res = await fetch(CHAT_ENDPOINT, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ message, sessionId }),
+        body: JSON.stringify({ message, sessionId, agentId: opts.agentId }),
         signal: ctl.signal,
       });
     } catch {

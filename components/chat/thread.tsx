@@ -28,7 +28,18 @@ interface ChatMessage {
   streaming?: boolean;
 }
 
-export const Thread: FC = () => {
+export interface ThreadProps {
+  /**
+   * Karyawan yang diajak bicara. Kosong = agent bawaan server. Dikirim ke
+   * /api/chat, yang menolaknya kalau id itu bukan penghuni kantor si pemanggil
+   * — jadi mengganti nilai ini di browser tidak membuka agent orang lain.
+   */
+  agentId?: string;
+  /** Kalimat pembuka saat transkrip masih kosong. */
+  greeting?: string;
+}
+
+export const Thread: FC<ThreadProps> = ({ agentId, greeting }) => {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState("");
   const [isRunning, setIsRunning] = useState(false);
@@ -95,6 +106,7 @@ export const Thread: FC = () => {
       try {
         const reply = await chatStream(trimmed, sessionIdRef.current, {
           signal: ctl.signal,
+          agentId,
           onText: (full) => patchMessage(assistantId, { text: full }),
           onReasoning: (full) =>
             patchMessage(assistantId, { reasoning: full }),
@@ -117,7 +129,7 @@ export const Thread: FC = () => {
         abortRef.current = null;
       }
     },
-    [isRunning],
+    [isRunning, agentId],
   );
 
   const stop = useCallback(() => {
@@ -125,7 +137,7 @@ export const Thread: FC = () => {
   }, []);
 
   return (
-    <div className="bg-background flex h-dvh w-full flex-col">
+    <div className="bg-background flex h-full w-full flex-col">
       <div
         ref={scrollerRef}
         onScroll={onViewportScroll}
@@ -137,7 +149,7 @@ export const Thread: FC = () => {
             isEmpty && "justify-center",
           )}
         >
-          {isEmpty ? <Banner /> : null}
+          {isEmpty ? <Banner greeting={greeting} /> : null}
 
           <div className="mb-10 flex flex-col gap-6">
             {messages.map((m) =>
@@ -171,7 +183,7 @@ export const Thread: FC = () => {
 
 // ------------------------------------------------------------------- banner
 
-const Banner: FC = () => (
+const Banner: FC<{ greeting?: string }> = ({ greeting }) => (
   <div className="mb-8 select-none">
     <div className="flex items-baseline gap-2">
       <span className="text-term-prompt text-sm font-medium tracking-tight">
@@ -181,10 +193,10 @@ const Banner: FC = () => (
     </div>
     <div className="border-term-rule my-2.5 border-t" />
     <p className="text-muted-foreground text-xs leading-relaxed">
-      Sebuah terminal yang ngobrol dengan paw.wheza.id. Ketik apa pun di bawah —
-      jawabannya mengalir token demi token.
+      {greeting ??
+        "Ketik apa pun di bawah — jawabannya mengalir token demi token."}
     </p>
-    <p className="text-term-dim term-caret mt-1.5 text-xs">type below to begin</p>
+    <p className="text-term-dim term-caret mt-1.5 text-xs">ketik di bawah</p>
   </div>
 );
 
