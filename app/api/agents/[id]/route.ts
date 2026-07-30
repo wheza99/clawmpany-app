@@ -1,0 +1,141 @@
+// Karyawan itu sendiri: identitas, nama, dan pemecatan.
+//
+//   GET    → identitas mentah (PROFILE.md, SOUL.md) untuk penyunting
+//   PATCH  → simpan {name?, profile?, soul?}
+//   DELETE → pecat: hapus agent di QwenPaw + keluarkan dari roster kantor
+//
+// PATCH ada karena 40-an agent di instance ini terlanjur jadi kursi kosong
+// lewat alur rekrut yang lama. Mencegahnya berulang (lihat /api/hire) tidak
+// menolong yang sudah telanjur — kursi kosong juga harus bisa DIPERBAIKI,
+// bukan cuma dipecat lalu direkrut ulang dari nol.
+import { NextResponse } from "next/server";
+
+import { currentOffice, saveRoster } from "@/lib/office";
+import {
+  deleteAgent,
+  readWorkspaceFile,
+  renameAgent,
+  writeWorkspaceFile,
+} from "@/lib/qwenpaw";
+
+export const runtime = "nodejs";
+
+type Params = { params: Promise<{ id: string }> };
+
+async function guard(params: Params["params"]) {
+  const { id } = await params;
+  const office = await currentOffice();
+  if (!office.roster.includes(id)) {
+    return { error: NextResponse.json({ error: "Tidak ditemukan." }, { status: 404 }) };
+  }
+  if (!office.writable) {
+    return { error: NextResponse.json({ error: "Masuk dulu." }, { status: 401 }) };
+  }
+  return { agentId: id, office };
+}
+
+function failure(e: unknown, fallback: string) {
+  return NextResponse.json(
+    { error: e instanceof Error ? e.message : fallback },
+    { status: 502 },
+  );
+}
+
+export async function GET(_req: Request, { params }: Params) {
+  const g = await guard(params);
+  if ("error" in g) return g.error;
+
+  try {
+    const [profile, soul] = await Promise.all([
+      readWorkspaceFile(g.agentId, "PROFILE.md"),
+      readWorkspaceFile(g.agentId, "SOUL.md"),
+    ]);
+    return NextResponse.json({ profile, soul });
+  } catch (e) {
+    return failure(e, "Gagal membaca identitas.");
+  }
+}
+
+export async function PATCH(req: Request, { params }: Params) {
+  const g = await guard(params);
+  if ("error" in g) return g.error;
+
+  let body: { name?: unknown; profile?: unknown; soul?: unknown };
+  try {
+    body = await req.json();
+  } catch {
+    return NextResponse.json({ error: "Body bukan JSON." }, { status: 400 });
+  }
+
+  const name = typeof body.name === "string" ? body.name.trim() : undefined;
+  const profile = typeof body.profile === "string" ? body.profile : undefined;
+  const soul = typeof body.soul === "string" ? body.soul : undefined;
+
+  if (name !== undefined && (!name || name.length > 40)) {
+    return NextResponse.json(
+      { error: "Nama wajib diisi, maksimal 40 karakter." },
+      { status: 400 },
+    );
+  }
+  // PROFILE.md kosong = kursi kosong. Menolaknya di sini menjaga janji yang
+  // dibuat alur rekrut: tidak ada karyawan tanpa identitas.
+  if (profile !== undefined && !profile.trim()) {
+    return NextResponse.json(
+      { error: "Identitas tidak boleh kosong — itu yang membuat dia tahu harus mengerjakan apa." },
+      { status: 400 },
+    );
+  }
+
+  try {
+    if (name !== undefined) await renameAgent(g.agentId, name);
+    if (profile !== undefined) await writeWorkspaceFile(g.agentId, "PROFILE.md", profile);
+    if (soul !== undefined) await writeWorkspaceFile(g.agentId, "SOUL.md", soul);
+    return NextResponse.json({ ok: true });
+  } catch (e) {
+    return failure(e, "Gagal menyimpan.");
+  }
+}
+
+export async function DELETE(req: Request, { params }: Params) {
+  const g = await guard(params);
+  if ("error" in g) return g.error;
+
+  // Nama diketik ulang sebagai konfirmasi. Pemecatan menghapus workspace agent
+  // beserta seluruh riwayat kerjanya di QwenPaw dan tidak bisa dibatalkan, jadi
+  // dialog "yakin?" yang bisa diklik refleks tidak cukup.
+  const confirm = new URL(req.url).searchParams.get("confirm")?.trim() ?? "";
+  if (!confirm) {
+    return NextResponse.json(
+      { error: "Ketik nama karyawannya untuk mengonfirmasi." },
+      { status: 400 },
+    );
+  }
+
+  try {
+    await deleteAgent(g.agentId);
+  } catch (e) {
+    return failure(e, "Gagal menghapus karyawan di QwenPaw.");
+  }
+
+  // Roster dibersihkan SETELAH agentnya benar-benar hilang. Urutan sebaliknya
+  // bisa meninggalkan agent yatim: tidak ada di kantor mana pun, tapi masih
+  // hidup di instance dan tetap menjalankan jadwalnya.
+  try {
+    await saveRoster(
+      g.office,
+      g.office.roster.filter((r) => r !== g.agentId),
+    );
+  } catch (e) {
+    return NextResponse.json(
+      {
+        error:
+          e instanceof Error
+            ? `Karyawan sudah dihapus, tapi daftar kantor gagal diperbarui: ${e.message}`
+            : "Karyawan sudah dihapus, tapi daftar kantor gagal diperbarui.",
+      },
+      { status: 500 },
+    );
+  }
+
+  return NextResponse.json({ removed: g.agentId });
+}

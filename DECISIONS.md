@@ -5,6 +5,42 @@ baru di atas.
 
 ---
 
+## 2026-07-31 · Iterasi 4 — identitas bisa diperbaiki, karyawan bisa dipecat
+
+### Kenapa penyunting identitas, bukan cuma tombol pecat
+
+Mencegah kursi kosong (iterasi 1) tidak menolong yang sudah telanjur. Instance
+ini berisi ~40 agent yang direkrut lewat alur lama dan tidak pernah diberi
+identitas. Tanpa cara memperbaikinya, satu-satunya jalan adalah memecat lalu
+merekrut ulang dari nol — dan orang tidak akan melakukan itu, mereka akan
+membiarkannya. Maka halaman karyawan yang identitasnya kosong **membuka
+penyuntingnya sendiri**, bukan menunggu diklik.
+
+### Diverifikasi di paw.wheza.id
+
+Siklus hidup penuh dijalankan dengan agent sekali pakai: buat → tulis
+`PROFILE.md` (deskripsi agent langsung ikut berubah) → ganti nama → hapus.
+Keduanya sudah dibersihkan; tidak ada sisa.
+
+**Kekhawatiran yang ternyata tidak terbukti:** respons `PUT /api/agents/{id}`
+mengembalikan `language: "zh"` dan `active_model: null` walau agentnya dibuat
+dengan `language: "en"` — tampak seperti PUT mengganti seluruh konfigurasi
+(seperti PUT cron). Dibandingkan langsung sebelum/sesudah lewat
+`GET /api/agents/{id}`: `language`, `active_model`, `approval_level`, dan
+`system_prompt_files` semuanya **bertahan**. Respons PUT itu cuma echo yang
+tidak lengkap, bukan state tersimpan. Rename aman.
+
+### Keputusan
+
+| Keputusan | Alasan |
+|---|---|
+| **Pecat butuh nama diketik ulang** | Menghapus workspace agent beserta seluruh riwayat kerjanya, dan tidak bisa dibatalkan. Dialog "yakin?" yang bisa diklik refleks tidak cukup. |
+| **Roster dibersihkan SETELAH agent benar-benar hilang** | Urutan sebaliknya bisa meninggalkan agent yatim: tidak ada di kantor mana pun, tapi masih hidup di instance dan tetap menjalankan jadwalnya. |
+| **PROFILE.md kosong ditolak saat menyimpan** | Menjaga janji yang dibuat alur rekrut: tidak ada karyawan tanpa identitas. |
+| **Penyunting terbuka sendiri kalau identitas kosong** | Layar yang menyembunyikan satu-satunya perbaikan di balik satu klik akan dilewati. |
+
+---
+
 ## 2026-07-31 · Iterasi 3 — jadwal yang bisa disunting, dan hasilnya bisa dilihat
 
 ### Bug yang ditemukan dan diperbaiki

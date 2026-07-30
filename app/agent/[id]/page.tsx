@@ -3,6 +3,7 @@ import { notFound } from "next/navigation";
 
 import { Thread } from "@/components/chat/thread";
 import { EquipmentPanel } from "@/components/office/equipment-panel";
+import { IdentityPanel } from "@/components/office/identity-panel";
 import { SchedulePanel } from "@/components/office/schedule-panel";
 import { OfficeHeader } from "@/components/office/header";
 import { TermBlock, TermGutter } from "@/components/terminal/primitives";
@@ -13,6 +14,7 @@ import {
   listChats,
   listCronJobs,
   listMcpServers,
+  looksUnconfigured,
   probeMcpTools,
   readCronState,
   readInstruction,
@@ -46,11 +48,12 @@ export default async function AgentPage({
   // "akses ditolak", yang justru mengonfirmasi bahwa agentnya eksis.
   if (!office.roster.includes(id)) notFound();
 
-  const [directory, chats, jobs, profile] = await Promise.all([
+  const [directory, chats, jobs, profile, soul] = await Promise.all([
     listAgents().catch(() => []),
     listChats(id).catch(() => []),
     listCronJobs(id).catch(() => []),
     readWorkspaceFile(id, "PROFILE.md").catch(() => ""),
+    readWorkspaceFile(id, "SOUL.md").catch(() => ""),
   ]);
 
   const agent = directory.find((a) => a.id === id);
@@ -151,13 +154,13 @@ export default async function AgentPage({
           )}
         </TermBlock>
 
-        {profile ? (
-          <TermBlock label="Kontrak kerja (PROFILE.md)" tone="dim">
-            <pre className="text-term-dim overflow-x-auto text-[11px] whitespace-pre-wrap">
-              {profile.slice(0, 2000)}
-            </pre>
-          </TermBlock>
-        ) : null}
+        <IdentityPanel
+          agentId={id}
+          name={agent.name}
+          profile={profile}
+          soul={soul}
+          configured={!looksUnconfigured(agent.description || "")}
+        />
 
         <TermBlock label={`Bicara dengan ${agent.name}`}>
           <div className="h-[26rem]">
