@@ -13,9 +13,18 @@
 
 export const runtime = "nodejs";
 
-const PAW_URL = (process.env.PAW_URL ?? "https://paw.wheza.id").replace(/\/$/, "");
-const PAW_AUTH_TOKEN = process.env.PAW_AUTH_TOKEN ?? "";
-const PAW_AGENT_ID = process.env.PAW_AGENT_ID ?? "default";
+// Env reads prefer QWENPAW_* because that is the naming already provisioned on
+// the Coolify resource (and the convention across the wheza projects — e.g.
+// clawcity). PAW_* is accepted as a fallback so a local .env.local can use a
+// shorter name without touching the server config.
+const PAW_URL = (
+  process.env.PAW_URL ??
+  process.env.QWENPAW_URL ??
+  "https://paw.wheza.id"
+).replace(/\/$/, "");
+const PAW_AUTH_TOKEN = process.env.PAW_AUTH_TOKEN ?? process.env.QWENPAW_AUTH_TOKEN ?? "";
+const PAW_AGENT_ID =
+  process.env.PAW_AGENT_ID ?? process.env.QWENPAW_AGENT_ID ?? "default";
 
 function newSessionId(): string {
   return `clawmpany-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
