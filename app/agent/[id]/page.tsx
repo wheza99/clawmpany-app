@@ -3,15 +3,20 @@ import { notFound } from "next/navigation";
 
 import { Thread } from "@/components/chat/thread";
 import { EquipmentPanel } from "@/components/office/equipment-panel";
+import { SchedulePanel } from "@/components/office/schedule-panel";
 import { OfficeHeader } from "@/components/office/header";
 import { TermBlock, TermGutter } from "@/components/terminal/primitives";
 import { authEnabled, currentOffice } from "@/lib/office";
+import { offers } from "@/lib/utilities";
 import {
   listAgents,
   listChats,
   listCronJobs,
-  readChat,
+  listMcpServers,
+  probeMcpTools,
   readCronState,
+  readInstruction,
+  readChat,
   readWorkspaceFile,
 } from "@/lib/qwenpaw";
 
@@ -55,7 +60,11 @@ export default async function AgentPage({
     .sort((a, b) => (b.updated_at ?? "").localeCompare(a.updated_at ?? ""))
     .slice(0, SESSIONS_SHOWN);
 
-  const [sessions, states] = await Promise.all([
+  // Semua yang ditampilkan panel interaktif diambil DI SINI, bukan lewat
+  // effect di browser: satu waterfall lebih sedikit, dan panelnya sudah berisi
+  // sejak render pertama. Setelah itu panel memuat ulang sendiri tiap kali
+  // penggunanya mengubah sesuatu.
+  const [sessions, jobRows, tools] = await Promise.all([
     Promise.all(
       recent.map(async (c) => ({
         session: c,
@@ -63,9 +72,31 @@ export default async function AgentPage({
       })),
     ),
     Promise.all(
-      jobs.map(async (job) => ({ job, state: await readCronState(id, job.id).catch(() => null) })),
+      jobs.map(async (job) => ({
+        id: job.id,
+        name: job.name,
+        enabled: job.enabled,
+        cron: job.schedule?.cron ?? null,
+        timezone: job.schedule?.timezone ?? null,
+        instruction: readInstruction(job),
+        state: await readCronState(id, job.id).catch(() => null),
+      })),
     ),
+    listMcpServers(id).catch(() => []),
   ]);
+
+  // Tes koneksi hanya untuk peralatan yang menyala — yang dimatikan sudah pasti
+  // tidak menjawab, jadi menanyakannya cuma menambah detik pada waktu muat.
+  const equipment = await Promise.all(
+    tools.map(async (t) => ({
+      key: t.key,
+      name: t.name,
+      description: t.description,
+      enabled: t.enabled,
+      transport: t.transport,
+      probe: t.enabled ? await probeMcpTools(id, t.key) : null,
+    })),
+  );
 
   return (
     <div className="flex min-h-svh flex-col">
@@ -85,47 +116,13 @@ export default async function AgentPage({
           </p>
         </div>
 
-        <TermBlock label={`Jadwal kerja · ${states.length}`} tone={states.length ? "default" : "dim"}>
-          {states.length === 0 ? (
-            <p className="text-term-dim text-xs">
-              Belum ada. Tanpa jadwal, dia hanya bekerja saat kamu mengetik di
-              bawah — dan itu berarti kamu tetap yang jadi mesinnya.
-            </p>
-          ) : (
-            <ul className="divide-border divide-y">
-              {states.map(({ job, state }) => (
-                <li key={job.id} className="py-2 text-sm first:pt-0 last:pb-0">
-                  <div className="flex flex-wrap items-baseline gap-x-2">
-                    <span className={job.enabled ? "" : "text-term-dim line-through"}>
-                      {job.name}
-                    </span>
-                    <code className="text-term-dim text-[11px]">
-                      {job.schedule?.cron ?? "—"}
-                    </code>
-                    <span className="ml-auto text-[11px]">
-                      {!job.enabled ? (
-                        <span className="text-term-dim">mati</span>
-                      ) : state?.last_status === "success" ? (
-                        <span className="text-term-prompt">ok</span>
-                      ) : state?.last_status ? (
-                        <span className="text-term-warn">{state.last_status}</span>
-                      ) : (
-                        <span className="text-term-dim">belum pernah jalan</span>
-                      )}
-                    </span>
-                  </div>
-                  {state?.last_error ? (
-                    <p className="text-term-warn mt-0.5 text-[11px]">
-                      {state.last_error.slice(0, 200)}
-                    </p>
-                  ) : null}
-                </li>
-              ))}
-            </ul>
-          )}
-        </TermBlock>
+        <SchedulePanel agentId={id} initialJobs={jobRows} />
 
-        <EquipmentPanel agentId={id} />
+        <EquipmentPanel
+          agentId={id}
+          initialInstalled={equipment}
+          initialCatalog={offers()}
+        />
 
         <TermBlock label="Pekerjaan terakhir">
           {sessions.length === 0 ? (

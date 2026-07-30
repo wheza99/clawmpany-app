@@ -39,7 +39,7 @@ export const ROLE_CATALOG: RoleTemplate[] = [
       "Menandai hal yang sudah terlalu lama diam",
     ],
     suggestedSchedule: {
-      cron: "0 1 * * *",
+      cron: "0 8 * * *",
       label: "Laporan pagi (08:00 WIB)",
       prompt:
         "Susun laporan pagi untuk pemilik perusahaan. Maksimal 8 bullet. Urutan: (1) yang butuh keputusan hari ini, (2) yang selesai kemarin, (3) yang macet dan kenapa. Tanpa basa-basi, tanpa pengulangan konteks.",
@@ -56,7 +56,7 @@ export const ROLE_CATALOG: RoleTemplate[] = [
       "Merangkum keluhan yang paling sering muncul tiap minggu",
     ],
     suggestedSchedule: {
-      cron: "0 9 * * 1",
+      cron: "0 16 * * 1",
       label: "Rangkuman keluhan mingguan (Senin 16:00 WIB)",
       prompt:
         "Rangkum keluhan pelanggan minggu ini: tiga tema terbesar, berapa kali muncul, dan satu usulan perbaikan operasional untuk tiap tema.",
@@ -73,7 +73,7 @@ export const ROLE_CATALOG: RoleTemplate[] = [
       "Melaporkan mana yang menarik perhatian dan mana yang tidak",
     ],
     suggestedSchedule: {
-      cron: "0 2 * * 1",
+      cron: "0 9 * * 1",
       label: "Rencana konten mingguan (Senin 09:00 WIB)",
       prompt:
         "Susun rencana konten minggu ini: 5 ide yang bersumber dari pekerjaan nyata perusahaan, masing-masing dengan sudut pandang dan ajakan bertindaknya. Bullet, tanpa pengantar.",
@@ -90,7 +90,7 @@ export const ROLE_CATALOG: RoleTemplate[] = [
       "Menandai yang sudah terlalu lama diam untuk dilepas",
     ],
     suggestedSchedule: {
-      cron: "0 2 * * 1-5",
+      cron: "0 9 * * 1-5",
       label: "Daftar follow-up harian (09:00 WIB, Senin–Jumat)",
       prompt:
         "Daftar maksimal 5 calon pelanggan yang paling layak dihubungi hari ini. Untuk tiap orang: kenapa dia, apa konteks terakhirnya, dan satu kalimat pembuka.",
@@ -107,7 +107,7 @@ export const ROLE_CATALOG: RoleTemplate[] = [
       "Menandai pengeluaran yang naik tidak wajar",
     ],
     suggestedSchedule: {
-      cron: "0 2 * * 1",
+      cron: "0 9 * * 1",
       label: "Ringkasan keuangan mingguan (Senin 09:00 WIB)",
       prompt:
         "Ringkas posisi keuangan minggu ini: uang masuk, uang keluar, tagihan lewat tempo, dan satu hal yang perlu diwaspadai. Angka dulu, penjelasan setelahnya.",
@@ -124,7 +124,7 @@ export const ROLE_CATALOG: RoleTemplate[] = [
       "Menandai pekerjaan yang melewati tenggat",
     ],
     suggestedSchedule: {
-      cron: "0 10 * * 1-5",
+      cron: "0 17 * * 1-5",
       label: "Laporan sore (17:00 WIB, Senin–Jumat)",
       prompt:
         "Laporkan progres pekerjaan hari ini: apa yang maju, apa yang tidak bergerak sejak kemarin, dan apa yang melewati tenggat. Bullet pendek.",

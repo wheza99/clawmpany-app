@@ -57,7 +57,7 @@ function headers(extra: Record<string, string> = {}): Record<string, string> {
  */
 async function get<T>(
   path: string,
-  opts: { agentId?: string; soft404?: boolean } = {},
+  opts: { agentId?: string; soft404?: boolean; timeoutMs?: number } = {},
 ): Promise<T | null> {
   const extra: Record<string, string> = opts.agentId
     ? { "X-Agent-Id": opts.agentId }
@@ -66,7 +66,7 @@ async function get<T>(
   try {
     res = await fetch(`${BASE}${path}`, {
       headers: headers(extra),
-      signal: AbortSignal.timeout(TIMEOUT_MS),
+      signal: AbortSignal.timeout(opts.timeoutMs ?? TIMEOUT_MS),
       cache: "no-store",
     });
   } catch {
@@ -161,6 +161,9 @@ export interface CronJob {
   enabled: boolean;
   schedule: { type: string; cron: string | null; timezone: string | null } | null;
   dispatch?: { target?: { session_id?: string } };
+  /** Instruksi job hidup di sini (request.input), bukan di `text`. */
+  request?: Record<string, unknown>;
+  text?: string | null;
 }
 
 export interface CronState {
@@ -310,45 +313,182 @@ export async function listCronJobs(agentId: string): Promise<CronJob[]> {
  *    hasil kerjanya ditulis, dan itulah yang nanti dibaca panel hasil. Kalau
  *    keduanya berbeda, hasil run tidak akan pernah ketemu.
  */
+export interface CronInput {
+  name: string;
+  cron: string;
+  instruction: string;
+  timezone?: string;
+  enabled?: boolean;
+}
+
+/**
+ * Rakit body wire cron QwenPaw. Satu perakit dipakai create DAN update, karena
+ * `PUT` MENGGANTI job seutuhnya — update parsial yang cuma mengirim field yang
+ * berubah akan mengosongkan sisanya. `existing` yang diberikan jadi nilai
+ * jatuhan untuk setiap field yang tidak disebut pemanggil.
+ */
+function cronPayload(
+  agentId: string,
+  input: Partial<CronInput>,
+  existing?: CronJob & { request?: Record<string, unknown> },
+): Record<string, unknown> {
+  // session_id DIPERTAHANKAN dari job lama saat update. Kalau di-generate ulang,
+  // panel hasil kehilangan seluruh riwayat run sebelumnya — ia akan menunjuk
+  // sesi chat yang berbeda dan tampak seperti jadwal yang belum pernah jalan.
+  const sessionId =
+    existing?.dispatch?.target?.session_id ??
+    `claw-cron-${agentId}-${Math.random().toString(36).slice(2, 10)}`;
+
+  const instruction = input.instruction ?? readInstruction(existing) ?? "";
+  const name = (input.name ?? existing?.name ?? "Jadwal").slice(0, 120);
+
+  return {
+    name,
+    enabled: input.enabled ?? existing?.enabled ?? true,
+    schedule: {
+      type: "cron",
+      cron: input.cron ?? existing?.schedule?.cron ?? "0 2 * * *",
+      timezone: input.timezone ?? existing?.schedule?.timezone ?? "Asia/Jakarta",
+    },
+    task_type: "agent",
+    // text sengaja null: instruksi hanya hidup di request.input supaya tidak
+    // ada dua sumber kebenaran yang bisa berbeda isi.
+    text: null,
+    request: {
+      input: [
+        { role: "user", type: "message", content: [{ type: "text", text: instruction }] },
+      ],
+      session_id: sessionId,
+      user_id: agentId,
+    },
+    dispatch: {
+      type: "channel",
+      channel: "console",
+      target: { user_id: agentId, session_id: sessionId },
+      mode: "final",
+      meta: {},
+    },
+    save_result_to_inbox: true,
+  };
+}
+
+/** Instruksi sebuah job, dari mana pun ia disimpan (request.input atau text). */
+export function readInstruction(job?: {
+  request?: Record<string, unknown>;
+  text?: string | null;
+}): string {
+  const input = job?.request?.input;
+  if (Array.isArray(input) && input.length > 0) {
+    const content = (input[0] as Record<string, unknown> | undefined)?.content;
+    if (Array.isArray(content) && content.length > 0) {
+      const text = (content[0] as Record<string, unknown> | undefined)?.text;
+      if (typeof text === "string") return text;
+    }
+  }
+  return typeof job?.text === "string" ? job.text : "";
+}
+
 export async function createCronJob(
   agentId: string,
-  input: { name: string; cron: string; instruction: string; timezone?: string; enabled?: boolean },
+  input: CronInput,
 ): Promise<{ id?: string }> {
-  const sessionId = `claw-cron-${agentId}-${Math.random().toString(36).slice(2, 10)}`;
   return send<{ id?: string }>(
     "POST",
     `/api/agents/${encodeURIComponent(agentId)}/cron/jobs`,
-    {
-      name: input.name.slice(0, 120),
-      enabled: input.enabled ?? true,
-      schedule: {
-        type: "cron",
-        cron: input.cron,
-        timezone: input.timezone ?? "Asia/Jakarta",
-      },
-      task_type: "agent",
-      text: null,
-      request: {
-        input: [
-          {
-            role: "user",
-            type: "message",
-            content: [{ type: "text", text: input.instruction }],
-          },
-        ],
-        session_id: sessionId,
-        user_id: agentId,
-      },
-      dispatch: {
-        type: "channel",
-        channel: "console",
-        target: { user_id: agentId, session_id: sessionId },
-        mode: "final",
-        meta: {},
-      },
-      save_result_to_inbox: true,
-    },
+    cronPayload(agentId, input),
   );
+}
+
+/**
+ * Ubah jadwal. Job lama dibaca dulu supaya field yang tidak dikirim tetap utuh
+ * — lihat catatan di `cronPayload` soal PUT yang mengganti seutuhnya.
+ */
+export async function updateCronJob(
+  agentId: string,
+  jobId: string,
+  input: Partial<CronInput>,
+): Promise<void> {
+  const jobs = await listCronJobs(agentId);
+  const existing = jobs.find((j) => j.id === jobId);
+  if (!existing) throw new QwenPawError("Jadwal tidak ditemukan.", 404);
+  await send(
+    "PUT",
+    `/api/agents/${encodeURIComponent(agentId)}/cron/jobs/${encodeURIComponent(jobId)}`,
+    cronPayload(agentId, input, existing),
+  );
+}
+
+export async function deleteCronJob(agentId: string, jobId: string): Promise<void> {
+  await send(
+    "DELETE",
+    `/api/agents/${encodeURIComponent(agentId)}/cron/jobs/${encodeURIComponent(jobId)}`,
+  );
+}
+
+/**
+ * Jalankan sekarang, di luar jadwalnya. Ini obat untuk friction terbesar dalam
+ * memasang jadwal: tanpa tombol ini, satu-satunya cara tahu instruksinya benar
+ * adalah menunggu sampai besok pagi.
+ */
+export async function runCronJobNow(agentId: string, jobId: string): Promise<void> {
+  await send(
+    "POST",
+    `/api/agents/${encodeURIComponent(agentId)}/cron/jobs/${encodeURIComponent(jobId)}/run`,
+  );
+}
+
+export interface CronRun {
+  run_at: string;
+  status: string;
+  error: string | null;
+  trigger: string | null;
+}
+
+export async function readCronHistory(agentId: string, jobId: string): Promise<CronRun[]> {
+  const raw = await get<unknown>(
+    `/api/agents/${encodeURIComponent(agentId)}/cron/jobs/${encodeURIComponent(jobId)}/history`,
+    { soft404: true },
+  );
+  return asArray<CronRun>(raw, "history");
+}
+
+/**
+ * Hasil kerja sebuah jadwal.
+ *
+ * Cron run TIDAK mengembalikan hasilnya lewat HTTP — QwenPaw men-dispatch
+ * balasan agent ke sebuah sesi chat. Jadi menampilkannya butuh tiga permintaan
+ * berantai: job → session_id → chat id → riwayat pesan.
+ */
+export async function readJobOutput(
+  agentId: string,
+  jobId: string,
+): Promise<{ sessionName: string; messages: ChatMessage[]; note?: string }> {
+  const jobs = await listCronJobs(agentId);
+  const job = jobs.find((j) => j.id === jobId);
+  if (!job) throw new QwenPawError("Jadwal tidak ditemukan.", 404);
+
+  const targetSessionId = job.dispatch?.target?.session_id;
+  if (!targetSessionId) {
+    return {
+      sessionName: job.name,
+      messages: [],
+      note: "Jadwal ini tidak menulis hasil ke sesi mana pun.",
+    };
+  }
+
+  const chats = await listChats(agentId);
+  const chat = chats.find((c) => c.session_id === targetSessionId);
+  // Sesi baru dibuat saat job pertama kali jalan, jadi "belum ada" adalah
+  // keadaan normal — bukan error.
+  if (!chat) {
+    return {
+      sessionName: targetSessionId,
+      messages: [],
+      note: "Belum ada hasil. Tekan Jalankan sekarang, atau tunggu jadwalnya tiba.",
+    };
+  }
+
+  return { sessionName: chat.name || targetSessionId, messages: await readChat(agentId, chat.id) };
 }
 
 export async function readCronState(
@@ -441,11 +581,16 @@ export interface McpProbe {
  *   200 + kosong → peralatannya sedang dimatikan
  *   502          → tidak bisa dihubungi; pesan aslinya ikut ditampilkan
  */
-export async function probeMcpTools(agentId: string, key: string): Promise<McpProbe> {
+export async function probeMcpTools(
+  agentId: string,
+  key: string,
+  timeoutMs = 8_000,
+): Promise<McpProbe> {
   try {
     const raw = await get<unknown>(`/api/mcp/tools/${encodeURIComponent(key)}`, {
       agentId,
       soft404: true,
+      timeoutMs,
     });
     const list = asArray<unknown>(raw, "tools");
     const tools = list

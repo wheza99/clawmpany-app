@@ -5,6 +5,36 @@ baru di atas.
 
 ---
 
+## 2026-07-31 · Iterasi 3 — jadwal yang bisa disunting, dan hasilnya bisa dilihat
+
+### Bug yang ditemukan dan diperbaiki
+
+Payload cron menyetel `timezone: "Asia/Jakarta"`, tapi enam ekspresi cron di
+`lib/roles.ts` ditulis dengan offset UTC. Jadi jadwal berlabel "Laporan pagi
+(08:00 WIB)" sebenarnya akan jalan **01:00 WIB**. Semua sudah diselaraskan ke
+WIB, dan diverifikasi: job dengan `cron: "0 3 * * *"` melaporkan
+`next_run_at: 2026-07-31T03:00:00+07:00`.
+
+### Diverifikasi end-to-end di paw.wheza.id
+
+Rantai penuh dijalankan sungguhan dengan payload yang persis dihasilkan kode
+ini — buat job → jalankan sekarang → status jadi `success` → temukan sesi lewat
+`session_id` → baca pesan → baca riwayat → hapus. Balasan agent kembali utuh.
+Job tesnya sudah dihapus.
+
+### Keputusan
+
+| Keputusan | Alasan |
+|---|---|
+| **Tombol "Jalankan sekarang"** | Tanpa ini, satu-satunya cara tahu instruksi jadwal sudah benar adalah menunggu sampai besok pagi. Orang yang menunggu semalam untuk tahu dia salah ketik tidak akan memasang jadwal kedua. |
+| **Pola siap pakai, bukan kotak cron** | Menulis `0 9 * * 1-5` bukan pekerjaan pemilik usaha. Yang dipilih kalimat ("tiap pagi kerja"); cron-nya urusan aplikasi. Kotak cron bebas tetap ada di balik "Pola sendiri…". |
+| **Satu perakit payload untuk create DAN update** | `PUT` mengganti job SEUTUHNYA. Update parsial yang cuma mengirim field berubah akan mengosongkan sisanya. |
+| **`session_id` dipertahankan saat update** | Kalau di-generate ulang, panel hasil kehilangan seluruh riwayat run sebelumnya — ia menunjuk sesi lain dan tampak seperti jadwal yang belum pernah jalan. |
+| **Data awal panel diambil di server, bukan lewat effect** | Selain menyenangkan lint React 19, ini menghapus satu waterfall di browser dan menghilangkan kedipan "Membaca…" untuk data yang sudah tersedia saat halaman dikirim. |
+| **"Jalankan sekarang" tidak menunggu selesai** | Satu run bisa makan menit; menahan koneksi selama itu membuat tab tampak menggantung. |
+
+---
+
 ## 2026-07-31 · Iterasi 2 — peralatan (MCP) jadi utilitas gedung
 
 ### Fakta yang diverifikasi dulu
