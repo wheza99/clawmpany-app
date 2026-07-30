@@ -5,6 +5,48 @@ baru di atas.
 
 ---
 
+## 2026-07-31 · Iterasi 5 — menjalankan app-nya, dan menemukan bug yang mematikan
+
+### Bug: tanpa `proxy.ts`, SETIAP halaman 500 begitu Clerk aktif
+
+Sampai iterasi 4, seluruh pengujian menyasar lapisan QwenPaw — app-nya sendiri
+belum pernah dijalankan. Begitu dijalankan lokal (dengan kunci Clerk terisi),
+setiap halaman langsung 500:
+
+> Clerk: auth() was called but Clerk can't detect usage of clerkMiddleware()
+
+`auth()` menuntut middleware Clerk berjalan. Tanpanya bukan cuma login yang
+gagal — seluruh situs mati.
+
+**Kenapa tidak ketahuan lebih awal.** `next build` hijau, `eslint` hijau, dan
+produksi pun tampak sehat — karena di produksi kunci Clerk BELUM diisi, jadi
+`lib/office.ts` pulang duluan sebelum menyentuh `auth()`. Bug ini hanya muncul
+pada kombinasi **kunci terisi + proxy tidak ada**, yaitu persis keadaan yang
+akan terjadi begitu env Coolify diisi. Artinya: memasang env Clerk tanpa
+perbaikan ini akan mematikan situs, bukan menghidupkan login.
+
+**Next 16 mengganti nama konvensinya.** `middleware.ts` deprecated dan menjadi
+`proxy.ts` (runtime Node.js, `edge` tidak didukung). Pesan error Clerk sendiri
+sudah menyebut `proxy.(ts|js)`. Setelah `proxy.ts` dibuat, output build
+menampilkan `ƒ Proxy (Middleware)` — itulah bukti ia terpasang.
+
+### Diverifikasi di browser
+
+- Halaman masuk dan `/chat` merender benar.
+- `POST /api/chat` ke manajer gedung: 200, SSE mengalir, selesai dengan usage.
+- **Gerbang kepemilikan diuji sungguhan.** Sebagai pengunjung anonim:
+  `agentId` `archylabs`/`default`/`budi` → **403**; `/equipment` dan
+  `/schedule` untuk agent luar roster → **404** (bukan 403, supaya tidak
+  mengonfirmasi bahwa agentnya ada). Tidak ada jalur ke penyewa lain di
+  instance bersama itu.
+
+### Pelajaran yang dicatat
+
+Build hijau bukan bukti aplikasi hidup. Untuk perubahan yang menyentuh auth,
+jalankan app-nya.
+
+---
+
 ## 2026-07-31 · Iterasi 4 — identitas bisa diperbaiki, karyawan bisa dipecat
 
 ### Kenapa penyunting identitas, bukan cuma tombol pecat
