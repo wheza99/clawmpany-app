@@ -96,6 +96,50 @@ function personalName(firstName: string | null, username: string | null): string
 }
 
 /**
+ * Semua kantor yang dimiliki orang ini — satu baris per perusahaan.
+ *
+ * Pemilik lima usaha tidak ingin membuka lima tab untuk tahu ada yang macet
+ * atau tidak. Ini yang membuat "satu akun, banyak perusahaan" berguna alih-alih
+ * cuma mungkin.
+ *
+ * Satu panggilan sudah cukup: `membership.organization` membawa objek
+ * organisasi lengkap beserta `privateMetadata`, jadi rosternya ikut terbaca
+ * tanpa satu request tambahan per perusahaan.
+ */
+export async function allOffices(): Promise<Office[]> {
+  if (!authEnabled()) return [];
+  const { userId } = await auth();
+  if (!userId) return [];
+
+  const client = await clerkClient();
+  const [user, memberships] = await Promise.all([
+    client.users.getUser(userId),
+    client.users.getOrganizationMembershipList({ userId, limit: 100 }),
+  ]);
+
+  const personal: Office = {
+    orgId: null,
+    name: personalName(user.firstName, user.username),
+    roster: readRoster(user.privateMetadata),
+    userId,
+    writable: true,
+  };
+
+  const orgs: Office[] = memberships.data.map((m) => ({
+    orgId: m.organization.id,
+    name: m.organization.name,
+    roster: readRoster(m.organization.privateMetadata),
+    userId,
+    writable: true,
+  }));
+
+  // Akun pribadi hanya ikut tampil kalau benar-benar dipakai. Menampilkannya
+  // selalu berarti pemilik lima perusahaan melihat enam baris, dan yang keenam
+  // selamanya kosong.
+  return personal.roster.length > 0 ? [personal, ...orgs] : orgs;
+}
+
+/**
  * Tulis ulang roster. Dipakai saat rekrut & pecat. Membaca-lalu-menulis
  * seluruh array (bukan patch parsial) karena Clerk mengganti metadata per
  * kunci — menulis sebagian akan menghapus sisanya.

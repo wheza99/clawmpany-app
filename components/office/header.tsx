@@ -23,6 +23,14 @@ export function OfficeHeader({ authOn }: { authOn: boolean }) {
         <span className="text-term-dim hidden text-[11px] sm:inline">
           kantor untuk AI agent
         </span>
+        {authOn ? (
+          <Link
+            href="/semua"
+            className="text-term-dim hover:text-term-prompt text-[11px] transition-colors"
+          >
+            semua perusahaan
+          </Link>
+        ) : null}
         <div className="ml-auto flex items-center gap-2">
           {authOn ? <AuthControls /> : null}
         </div>

@@ -99,6 +99,79 @@ function isRecent(iso: string | null | undefined): boolean {
   return Number.isFinite(t) && Date.now() - t < RECENT_WINDOW_MS;
 }
 
+export interface OfficeBrief {
+  orgId: string | null;
+  name: string;
+  headcount: number;
+  unconfigured: number;
+  /** Karyawan yang punya minimal satu jadwal menyala. */
+  working: number;
+  sessions24h: number;
+  /** Jadwal yang gagal pada run terakhirnya. */
+  failing: number;
+  error?: string;
+}
+
+/**
+ * Ringkasan satu kantor untuk layar semua-perusahaan.
+ *
+ * Sengaja TIDAK memakai `buildReport`. Laporan penuh menembak tiga permintaan
+ * per karyawan (sesi, jadwal, peralatan) plus satu per jadwal untuk statusnya —
+ * dikalikan lima perusahaan, layar ringkasan jadi lebih lambat daripada lima
+ * halaman yang digantikannya. Di sini peralatan dilewati sama sekali, dan
+ * status jadwal hanya ditanyakan untuk job yang menyala.
+ */
+export async function buildBrief(office: Office): Promise<OfficeBrief> {
+  const base: OfficeBrief = {
+    orgId: office.orgId,
+    name: office.name,
+    headcount: office.roster.length,
+    unconfigured: 0,
+    working: 0,
+    sessions24h: 0,
+    failing: 0,
+  };
+  if (office.roster.length === 0) return base;
+
+  let directory: QwenPawAgent[];
+  try {
+    directory = await listAgents();
+  } catch (e) {
+    return { ...base, error: e instanceof Error ? e.message : "QwenPaw tidak terjangkau." };
+  }
+  const byId = new Map(directory.map((a) => [a.id, a]));
+
+  const rows = await Promise.all(
+    office.roster.map(async (agentId) => {
+      const agent = byId.get(agentId);
+      if (!agent) return null;
+      const [chats, jobs] = await Promise.all([
+        listChats(agentId).catch(() => []),
+        listCronJobs(agentId).catch(() => []),
+      ]);
+      const enabled = jobs.filter((j) => j.enabled);
+      const states = await Promise.all(
+        enabled.map((j) => readCronState(agentId, j.id).catch(() => null)),
+      );
+      return {
+        configured: !looksUnconfigured(agent.description || ""),
+        enabledJobs: enabled.length,
+        recent: chats.filter((c) => isRecent(c.updated_at)).length,
+        failing: states.filter((s) => s?.last_status && s.last_status !== "success").length,
+      };
+    }),
+  );
+
+  for (const row of rows) {
+    if (!row) continue;
+    if (!row.configured) base.unconfigured += 1;
+    if (row.enabledJobs > 0) base.working += 1;
+    base.sessions24h += row.recent;
+    base.failing += row.failing;
+  }
+  return base;
+}
+
 /**
  * Rakit laporan satu kantor. Hanya agent yang ada di roster yang disentuh —
  * jumlah request naik linear terhadap ukuran kantor, bukan terhadap ukuran

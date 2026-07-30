@@ -5,6 +5,35 @@ baru di atas.
 
 ---
 
+## 2026-07-31 · Iterasi 6 — semua perusahaan dalam satu layar (`/semua`)
+
+### Kenapa
+
+Pemilik lima usaha tidak akan membuka lima tab tiap pagi untuk tahu ada yang
+macet — dia akan berhenti membuka semuanya. Tanpa layar ini, "satu akun banyak
+perusahaan" cuma mungkin, bukan berguna.
+
+Layar ini menjawab **satu** pertanyaan: perusahaan mana yang butuh saya hari
+ini? Detailnya tetap di halaman masing-masing.
+
+### Keputusan
+
+| Keputusan | Alasan |
+|---|---|
+| **`buildBrief` terpisah, bukan memakai `buildReport`** | Laporan penuh menembak 3 permintaan per karyawan plus 1 per jadwal. Dikali lima perusahaan, layar ringkasan jadi lebih lambat daripada lima halaman yang digantikannya. Brief melewati peralatan sama sekali dan hanya menanyakan status jadwal yang menyala. |
+| **Baris diurutkan berdasar kebutuhan perhatian** | `failing×100 + unconfigured×10 + (punya karyawan tapi tak ada yang terjadwal)×5`. Yang macet naik sendiri; tidak perlu dicari. |
+| **Akun pribadi hanya tampil kalau dipakai** | Kalau selalu ditampilkan, pemilik lima perusahaan melihat enam baris dan yang keenam selamanya kosong. |
+| **Tombol "buka" ada di barisnya sendiri** | Pemilih organisasi di header bisa melakukan hal yang sama, tapi menuntut orang naik ke pojok layar dan mencari nama yang barusan dia baca di tengah halaman. |
+| **Satu panggilan Clerk untuk semua roster** | `membership.organization` sudah membawa `privateMetadata`, jadi tidak ada request tambahan per perusahaan. |
+
+### Diverifikasi di browser
+
+`/`, `/chat`, dan `/semua` semuanya 200, tidak ada error server. (Dua error
+console yang muncul berasal dari skrip Clerk sendiri, bukan kode ini — sudah
+ada sejak sebelum perubahan ini.)
+
+---
+
 ## 2026-07-31 · Iterasi 5 — menjalankan app-nya, dan menemukan bug yang mematikan
 
 ### Bug: tanpa `proxy.ts`, SETIAP halaman 500 begitu Clerk aktif
