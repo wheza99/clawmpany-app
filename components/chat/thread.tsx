@@ -1,11 +1,18 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState, type FC } from "react";
+import { useTheme } from "next-themes";
 
 import { chatStream, newId, newSessionId } from "@/lib/paw";
 import { cn } from "@/lib/utils";
+import { APP_VERSION } from "@/lib/version";
 import { MarkdownText } from "@/components/markdown-text";
-import { TermBlock, TermGutter } from "@/components/terminal/primitives";
+import {
+  TermBlock,
+  TermGutter,
+  TermRow,
+  type TermTone,
+} from "@/components/terminal/primitives";
 
 /**
  * The whole interface: one centred column, no chrome.
@@ -14,10 +21,25 @@ import { TermBlock, TermGutter } from "@/components/terminal/primitives";
  * — a fixed-width `❯` gutter opens every line, rules are hairlines, nothing is
  * rounded, and the only interactive elements are a textarea and a send/stop
  * button. The difference is the runtime: where pabrik-startup drives this from
- * an assistant-ui runtime over an AI-SDK stream, this talks straight to the
- * /api/chat proxy (→ paw.wheza.id QwenPaw) through lib/paw.ts, no extra state
- * library in between.
+ * an assistant-ui runtime over an AI-SDK stream (and the MODEL calls frontend
+ * tools like set_theme), this talks straight to the /api/chat proxy
+ * (→ paw.wheza.id QwenPaw) through lib/paw.ts.
+ *
+ * QwenPaw's console chat only streams text + reasoning — it has no structured
+ * tool-call events — so the model can't drive UI tools the way pabrik-startup
+ * does. The same capabilities (theme, new chat, help) are instead reached with
+ * slash commands (/light, /dark, /system, /new, /help) intercepted client-side
+ * in `handleCommand`: the command is echoed into the transcript the way a shell
+ * echoes input, and its result lands as a terminal block below it, keeping the
+ * "everything happens in the conversation" feel without any sidebar or menu.
  */
+
+interface CommandBlock {
+  label: string;
+  tone?: TermTone;
+  rows?: Array<{ label: string; value: string }>;
+  note?: string;
+}
 
 interface ChatMessage {
   id: string;
@@ -26,7 +48,11 @@ interface ChatMessage {
   reasoning?: string;
   error?: boolean;
   streaming?: boolean;
+  /** Render as a labelled terminal block instead of markdown text. */
+  block?: CommandBlock;
 }
+
+const THEME_COMMANDS = new Set(["light", "dark", "system"]);
 
 export interface ThreadProps {
   /**
@@ -44,8 +70,10 @@ export const Thread: FC<ThreadProps> = ({ agentId, greeting }) => {
   const [input, setInput] = useState("");
   const [isRunning, setIsRunning] = useState(false);
 
+  const { setTheme, resolvedTheme } = useTheme();
+
   // session id is stable for the life of this mount so QwenPaw keeps the
-  // thread across turns; reload starts a fresh session.
+  // thread across turns; reload (or /new) starts a fresh session.
   const sessionIdRef = useRef<string>(newSessionId());
   const abortRef = useRef<AbortController | null>(null);
 
@@ -82,10 +110,77 @@ export const Thread: FC<ThreadProps> = ({ agentId, greeting }) => {
     );
   };
 
+  // ----------------------------------------------------------------- commands
+
+  /** Echo `raw` as a user line, then a labelled block as the reply. */
+  const echoBlock = (raw: string, block: CommandBlock) => {
+    setMessages((prev) => [
+      ...prev,
+      { id: newId(), role: "user", text: raw },
+      { id: newId(), role: "assistant", text: "", block },
+    ]);
+  };
+
+  const handleCommand = (raw: string) => {
+    const body = raw.slice(1).trim().toLowerCase();
+    const name = body.split(/\s+/)[0] ?? "";
+
+    if (THEME_COMMANDS.has(name)) {
+      setTheme(name);
+      echoBlock(raw, {
+        label: "display",
+        tone: "dim",
+        rows: [{ label: "theme", value: name }],
+        note:
+          name === "system" && resolvedTheme
+            ? `resolved ${resolvedTheme}`
+            : undefined,
+      });
+      return;
+    }
+
+    if (name === "new" || name === "clear") {
+      // Wipe the transcript and start a fresh QwenPaw session. No echo — the
+      // empty state (banner) returning is the confirmation.
+      setMessages([]);
+      sessionIdRef.current = newSessionId();
+      return;
+    }
+
+    if (name === "help") {
+      echoBlock(raw, {
+        label: "help",
+        tone: "dim",
+        note: "Slash commands run in your browser — they never reach paw.wheza.id. Anything else is sent as chat.",
+        rows: [
+          { label: "/light · /dark · /system", value: "switch theme" },
+          { label: "/new", value: "start a fresh chat" },
+          { label: "/help", value: "this list" },
+        ],
+      });
+      return;
+    }
+
+    echoBlock(raw, {
+      label: "error",
+      tone: "warn",
+      note: `unknown command: ${raw} — type /help for the list.`,
+    });
+  };
+
+  // --------------------------------------------------------------------- send
+
   const send = useCallback(
     async (text: string) => {
       const trimmed = text.trim();
       if (!trimmed || isRunning) return;
+
+      // Slash commands are intercepted locally and never sent to QwenPaw.
+      if (trimmed.startsWith("/")) {
+        handleCommand(trimmed);
+        setInput("");
+        return;
+      }
 
       const userMsg: ChatMessage = { id: newId(), role: "user", text: trimmed };
       const assistantId = newId();
@@ -129,7 +224,11 @@ export const Thread: FC<ThreadProps> = ({ agentId, greeting }) => {
         abortRef.current = null;
       }
     },
-    [isRunning, agentId],
+    // setTheme/resolvedTheme are stable from next-themes; listed so the command
+    // handler always sees the latest resolved theme for the /system note.
+    // agentId is here because switching employees must not reuse a closure
+    // still pointed at the previous one.
+    [isRunning, setTheme, resolvedTheme, agentId],
   );
 
   const stop = useCallback(() => {
@@ -156,7 +255,7 @@ export const Thread: FC<ThreadProps> = ({ agentId, greeting }) => {
               m.role === "user" ? (
                 <UserMessage key={m.id} text={m.text} />
               ) : (
-                <AssistantMessage key={m.id} message={m} onRetry={() => send(m.error ? "" : "")} />
+                <AssistantMessage key={m.id} message={m} />
               ),
             )}
           </div>
@@ -189,7 +288,7 @@ const Banner: FC<{ greeting?: string }> = ({ greeting }) => (
       <span className="text-term-prompt text-sm font-medium tracking-tight">
         clawmpany
       </span>
-      <span className="text-term-dim text-[11px]">chat</span>
+      <span className="text-term-dim text-[11px]">v{APP_VERSION}</span>
     </div>
     <div className="border-term-rule my-2.5 border-t" />
     <p className="text-muted-foreground text-xs leading-relaxed">
@@ -197,6 +296,10 @@ const Banner: FC<{ greeting?: string }> = ({ greeting }) => (
         "Ketik apa pun di bawah — jawabannya mengalir token demi token."}
     </p>
     <p className="text-term-dim term-caret mt-1.5 text-xs">ketik di bawah</p>
+    <p className="text-term-dim mt-1.5 text-[11px]">
+      ketik <span className="text-term-prompt">/help</span> untuk perintah tema &amp;
+      chat baru
+    </p>
   </div>
 );
 
@@ -211,17 +314,16 @@ const UserMessage: FC<{ text: string }> = ({ text }) => (
   </div>
 );
 
-const AssistantMessage: FC<{
-  message: ChatMessage;
-  onRetry: () => void;
-}> = ({ message }) => (
+const AssistantMessage: FC<{ message: ChatMessage }> = ({ message }) => (
   <div className="animate-fade-in">
     <div className="text-foreground min-w-0 text-sm leading-relaxed wrap-break-word">
-      {message.reasoning && message.reasoning.trim() ? (
+      {message.reasoning && message.reasoning.trim() && !message.block ? (
         <ReasoningBlock text={message.reasoning} />
       ) : null}
 
-      {message.error ? (
+      {message.block ? (
+        <CommandBlockView block={message.block} />
+      ) : message.error ? (
         <div className="my-2">
           <TermBlock label="error" tone="warn">
             <p className="text-destructive text-xs leading-relaxed wrap-break-word whitespace-pre-wrap">
@@ -237,6 +339,24 @@ const AssistantMessage: FC<{
         </span>
       ) : null}
     </div>
+  </div>
+);
+
+/** A labelled terminal block rendered as a tool-style reply (theme, help…). */
+const CommandBlockView: FC<{ block: CommandBlock }> = ({ block }) => (
+  <div className="my-2">
+    <TermBlock label={block.label} tone={block.tone ?? "dim"}>
+      {block.rows?.map((r) => (
+        <TermRow key={r.label} label={r.label}>
+          {r.value}
+        </TermRow>
+      ))}
+      {block.note ? (
+        <p className="text-muted-foreground mt-2 text-xs leading-relaxed">
+          {block.note}
+        </p>
+      ) : null}
+    </TermBlock>
   </div>
 );
 
@@ -306,7 +426,7 @@ const Composer: FC<{
         value={value}
         onChange={(e) => onChange(e.target.value)}
         onKeyDown={handleKeyDown}
-        placeholder="ketik pesan…"
+        placeholder="ketik pesan…  (/help untuk perintah)"
         className="caret-term-prompt placeholder:text-term-dim max-h-40 min-h-8 w-full flex-1 resize-none bg-transparent py-1 text-sm leading-6 outline-none"
         rows={1}
         autoFocus
