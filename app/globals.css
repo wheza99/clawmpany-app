@@ -1,26 +1,233 @@
 @import "tailwindcss";
 
-:root {
-  --background: #ffffff;
-  --foreground: #171717;
-}
+@custom-variant dark (&:is(.dark *));
 
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
-}
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+
+  /* Terminal semantics, used by the chat surface itself. */
+  --color-term-prompt: var(--term-prompt);
+  --color-term-dim: var(--term-dim);
+  --color-term-rule: var(--term-rule);
+  --color-term-warn: var(--term-warn);
+
+  /* Everything is monospace. The whole interface reads as a terminal session,
+     so there is no separate "prose" face. */
+  --font-sans: var(--font-geist-mono);
+  --font-mono: var(--font-geist-mono);
+
+  /* Rigid by construction: every radius token resolves to 0 so vendored
+     `rounded-*` utilities stay square. */
+  --radius-sm: 0px;
+  --radius-md: 0px;
+  --radius-lg: 0px;
+  --radius-xl: 0px;
+
+  --animate-fade-in: fade-in 150ms ease-out both;
+  --animate-caret: caret-blink 1.1s steps(1, end) infinite;
+
+  @keyframes fade-in {
+    from {
+      opacity: 0;
+    }
+    to {
+      opacity: 1;
+    }
+  }
+
+  @keyframes caret-blink {
+    0%,
+    49% {
+      opacity: 1;
+    }
+    50%,
+    100% {
+      opacity: 0;
+    }
   }
 }
 
-body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+/*
+ * ── WARNA ──────────────────────────────────────────────────────────────────
+ *
+ * Satu aksen saja, dan aksen itu MERAH — warna logo Clawmpany. Netralnya ikut
+ * bergeser hangat (hue 30–60, bukan 106–160 seperti versi hijau sebelumnya):
+ * abu-abu bercorak hijau di sebelah merah terbaca kotor, sementara abu-abu
+ * bercorak hangat membuat aksennya tampak sengaja.
+ *
+ * Setiap nilai di bawah diukur, bukan dikira-kira — semua pasangan teks/latar
+ * lolos WCAG AA (≥4.5:1), termasuk `--primary-foreground` DI ATAS `--primary`,
+ * yang dipakai tombol saat disorot dan oleh `::selection`:
+ *
+ *   terang  teks 17.2 · aksen 6.4 · redup 5.7 · peringatan 4.7 · galat 8.2
+ *   gelap   teks 14.9 · aksen 5.5 · redup 5.6 · peringatan 10.0 · galat 8.2
+ *
+ * `--destructive` sengaja TIDAK sewarna aksen. Begitu merah jadi warna merek,
+ * merah berhenti berarti "galat" — jadi galat digeser ke crimson yang lebih
+ * gelap (terang) / mawar yang lebih pucat (gelap), dan bingkai bloknya tetap
+ * dipegang `--term-warn` yang kuning.
+ */
+
+/* Terang — "kertas". Lembar putih hangat, tinta nyaris hitam, satu merah tua. */
+:root {
+  --radius: 0rem;
+  --background: oklch(0.986 0.003 60);
+  --foreground: oklch(0.205 0.008 40);
+  --card: oklch(0.972 0.004 60);
+  --card-foreground: oklch(0.205 0.008 40);
+  --popover: oklch(0.995 0.002 60);
+  --popover-foreground: oklch(0.205 0.008 40);
+  --primary: oklch(0.5 0.2 27);
+  --primary-foreground: oklch(0.99 0.003 60);
+  --secondary: oklch(0.945 0.005 50);
+  --secondary-foreground: oklch(0.28 0.01 40);
+  --muted: oklch(0.945 0.005 50);
+  --muted-foreground: oklch(0.505 0.012 40);
+  --accent: oklch(0.93 0.025 30);
+  --accent-foreground: oklch(0.34 0.1 27);
+  --destructive: oklch(0.44 0.17 15);
+  --border: oklch(0.865 0.007 45);
+  --input: oklch(0.865 0.007 45);
+  --ring: oklch(0.5 0.2 27);
+
+  --term-prompt: oklch(0.5 0.2 27);
+  --term-dim: oklch(0.6 0.01 40);
+  --term-rule: oklch(0.885 0.006 45);
+  --term-warn: oklch(0.55 0.105 75);
+}
+
+/*
+ * Gelap — "bara". Nyaris hitam bercorak hangat, tinta putih tulang, dan merah
+ * menyala untuk penanda dan nama. Dipilih next-themes lewat kelas `dark`.
+ */
+.dark {
+  --background: oklch(0.155 0.005 30);
+  --foreground: oklch(0.91 0.008 40);
+  --card: oklch(0.19 0.006 30);
+  --card-foreground: oklch(0.91 0.008 40);
+  --popover: oklch(0.185 0.006 30);
+  --popover-foreground: oklch(0.91 0.008 40);
+  --primary: oklch(0.65 0.22 27);
+  --primary-foreground: oklch(0.16 0.02 30);
+  --secondary: oklch(0.245 0.008 30);
+  --secondary-foreground: oklch(0.91 0.008 40);
+  --muted: oklch(0.235 0.008 30);
+  --muted-foreground: oklch(0.63 0.015 35);
+  --accent: oklch(0.27 0.035 28);
+  --accent-foreground: oklch(0.78 0.11 27);
+  --destructive: oklch(0.75 0.15 15);
+  --border: oklch(0.31 0.012 32);
+  --input: oklch(0.34 0.014 32);
+  --ring: oklch(0.65 0.22 27);
+
+  --term-prompt: oklch(0.65 0.22 27);
+  --term-dim: oklch(0.57 0.015 35);
+  --term-rule: oklch(0.28 0.01 32);
+  --term-warn: oklch(0.79 0.15 85);
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+    /* No curves anywhere. */
+    border-radius: 0 !important;
+  }
+
+  :root {
+    color-scheme: light;
+  }
+
+  :root.dark {
+    color-scheme: dark;
+  }
+
+  body {
+    @apply bg-background text-foreground;
+    font-family: var(--font-geist-mono), ui-monospace, monospace;
+    font-variant-ligatures: none;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  ::selection {
+    background: var(--term-prompt);
+    color: var(--primary-foreground);
+  }
+
+  /* Latar modal. Hitam pekat di kedua tema, bukan warna --background yang
+     dipudarkan: di tema gelap latar dan modal nyaris sewarna, jadi versi
+     "dipudarkan" tidak menghasilkan tepi yang terlihat sama sekali. */
+  dialog::backdrop {
+    background: rgb(0 0 0 / 0.55);
+  }
+
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: var(--term-rule) transparent;
+  }
+
+  *::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+
+  *::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  *::-webkit-scrollbar-thumb {
+    background: var(--term-rule);
+  }
+
+  *::-webkit-scrollbar-thumb:hover {
+    background: var(--muted-foreground);
+  }
+}
+
+@layer components {
+  /* The blinking block cursor, trailing text via an empty ::after. */
+  .term-caret::after {
+    content: "";
+    display: inline-block;
+    width: 0.55em;
+    height: 1.05em;
+    margin-left: 0.15em;
+    vertical-align: text-bottom;
+    background: var(--term-prompt);
+    animation: var(--animate-caret);
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .term-caret::after {
+      animation: none;
+    }
+  }
+
+  /* A single-character gutter marker (❯, ▸, ■ …). Fixed width so message
+     bodies stay on one grid no matter which marker is used. */
+  .term-gutter {
+    display: inline-block;
+    width: 1.25em;
+    flex: none;
+    user-select: none;
+  }
 }
