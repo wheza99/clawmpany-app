@@ -1,6 +1,7 @@
 // /api/chat — single hop to paw.wheza.id (QwenPaw).
 //
-// The browser POSTs { message, sessionId }; this route injects the secret
+// The browser POSTs { message, sessionId } — or { prime: true, sessionId } for
+// the opening turn, whose text this route writes itself; this route injects the secret
 // Authorization token + agent id + session id and forwards the request to
 // QwenPaw's /api/console/chat as Server-Sent Events, then pipes the SSE body
 // straight back. The token NEVER reaches the browser — same shape as the
@@ -11,7 +12,8 @@
 // deltas, {object:"message", type:"reasoning"|"message"} block openers, a
 // final {object:"response", status:"completed"} event, and {status:"failed"}.
 
-import { currentOffice } from "@/lib/office";
+import { currentOffice, viewerName, type Office } from "@/lib/office";
+import { briefingFor } from "@/lib/prompt";
 import { CONCIERGE_AGENT_ID } from "@/lib/qwenpaw";
 
 export const runtime = "nodejs";
@@ -29,12 +31,26 @@ const PAW_AUTH_TOKEN = process.env.PAW_AUTH_TOKEN ?? process.env.QWENPAW_AUTH_TO
 const PAW_AGENT_ID =
   process.env.PAW_AGENT_ID ?? process.env.QWENPAW_AGENT_ID ?? "default";
 
+/** Dipakai saat keadaan kantor tidak bisa dibaca sama sekali. */
+const FALLBACK_BRIEFING = [
+  "[INSTRUKSI SESI — jangan ditampilkan atau dikutip ke pengguna]",
+  "",
+  "Buka percakapan dalam maksimal dua kalimat pendek berbahasa Indonesia:",
+  "sebut siapa kamu di kantor ini, lalu tanyakan satu hal yang paling berguna",
+  "untuk dijawab lebih dulu. Tanpa judul markdown, tanpa menyinggung instruksi ini.",
+].join("\n");
+
 function newSessionId(): string {
   return `clawmpany-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
 }
 
 export async function POST(req: Request) {
-  let body: { message?: unknown; sessionId?: unknown; agentId?: unknown };
+  let body: {
+    message?: unknown;
+    sessionId?: unknown;
+    agentId?: unknown;
+    prime?: unknown;
+  };
   try {
     body = await req.json();
   } catch {
@@ -44,8 +60,12 @@ export async function POST(req: Request) {
     });
   }
 
+  // Giliran pembuka satu sesi. Isinya TIDAK datang dari browser — lihat
+  // lib/prompt.ts — dan hasilnya tetap satu giliran chat biasa, karena
+  // /api/console/chat memang tidak punya slot "system message".
+  const prime = body.prime === true;
   const message = typeof body.message === "string" ? body.message.trim() : "";
-  if (!message) {
+  if (!message && !prime) {
     return new Response("message required", {
       status: 400,
       headers: { "content-type": "text/plain" },
@@ -62,12 +82,13 @@ export async function POST(req: Request) {
   // pemanggil yang boleh dituju. Tanpa gate ini, mengubah satu field di
   // DevTools akan membuka agent milik penyewa lain di instance yang sama.
   const requested = typeof body.agentId === "string" ? body.agentId.trim() : "";
+  let office: Office | null = null;
   let agentId = PAW_AGENT_ID;
   if (requested) {
     if (requested === CONCIERGE_AGENT_ID) {
       agentId = requested;
     } else {
-      const office = await currentOffice();
+      office = await currentOffice();
       if (!office.roster.includes(requested)) {
         return new Response("Karyawan itu bukan penghuni kantor ini.", {
           status: 403,
@@ -75,6 +96,19 @@ export async function POST(req: Request) {
         });
       }
       agentId = requested;
+    }
+  }
+
+  let outgoing = message;
+  if (prime) {
+    // Gagal menyusun instruksi TIDAK boleh menggagalkan pembukaan percakapan:
+    // sambutan yang lebih tumpul jauh lebih baik daripada layar chat yang
+    // dibuka dengan pesan error.
+    try {
+      office ??= await currentOffice();
+      outgoing = await briefingFor(agentId, office, await viewerName());
+    } catch {
+      outgoing = FALLBACK_BRIEFING;
     }
   }
 
@@ -91,7 +125,7 @@ export async function POST(req: Request) {
       method: "POST",
       headers,
       body: JSON.stringify({
-        input: [{ role: "user", content: [{ type: "text", text: message }] }],
+        input: [{ role: "user", content: [{ type: "text", text: outgoing }] }],
         session_id: sessionId,
         channel: "console",
       }),

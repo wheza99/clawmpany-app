@@ -6,7 +6,7 @@ import { EquipmentPanel } from "@/components/office/equipment-panel";
 import { IdentityPanel } from "@/components/office/identity-panel";
 import { SchedulePanel } from "@/components/office/schedule-panel";
 import { TermBlock, TermGutter } from "@/components/terminal/primitives";
-import { currentOffice } from "@/lib/office";
+import { currentOffice, viewerName } from "@/lib/office";
 import { offers } from "@/lib/utilities";
 import {
   listAgents,
@@ -40,7 +40,7 @@ export default async function AgentPage({
   params: Promise<{ id: string }>;
 }) {
   const { id } = await params;
-  const office = await currentOffice();
+  const [office, viewer] = await Promise.all([currentOffice(), viewerName()]);
 
   // Gate kepemilikan. Instance QwenPaw dipakai bersama, jadi id yang tidak ada
   // di roster kantor ini diperlakukan seperti halaman yang tidak ada — bukan
@@ -160,10 +160,18 @@ export default async function AgentPage({
           configured={!looksUnconfigured(agent.description || "")}
         />
 
+        {/* Sengaja TANPA `prime`: halaman ini dibuka untuk MEMERIKSA karyawan,
+            dan kebanyakan kunjungan berakhir tanpa satu pesan pun. Membuka sesi
+            otomatis di sini berarti satu panggilan QwenPaw setiap kali seseorang
+            mengklik sebuah nama — biaya yang tidak dibayar oleh apa pun yang
+            dibaca di layar. Identitas karyawannya pun sudah ada di PROFILE.md
+            miliknya sendiri, jadi tidak ada yang perlu di-brief. */}
         <TermBlock label={`Bicara dengan ${agent.name}`}>
           <div className="h-[26rem]">
             <Thread
               agentId={id}
+              agentName={agent.name}
+              userName={viewer}
               greeting={`Kamu sedang bicara dengan ${agent.name}. Pertanyaan di sini masuk ke sesinya sendiri.`}
             />
           </div>

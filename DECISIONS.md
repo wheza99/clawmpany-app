@@ -5,6 +5,52 @@ baru di atas.
 
 ---
 
+## 2026-07-31 · Iterasi 8 — chat yang menjelaskan dirinya sendiri
+
+### Tiga keluhan, satu akar
+
+Semua bermuara pada hal yang sama: **transkrip tidak memberi tahu apa pun soal
+keadaannya sendiri.** Kursor berkedip tidak bisa dibedakan dari aplikasi yang
+menggantung; gelembung tanpa nama tidak bisa dibedakan antar-karyawan; dan
+halaman kosong menuntut orang menebak apa yang boleh ditanyakan.
+
+### Keputusan
+
+| Keputusan | Alasan |
+|---|---|
+| **Tahap giliran dibaca dari aliran SSE, bukan ditebak dari waktu** | `lib/paw.ts` sudah tahu bedanya blok `reasoning` dan `message`. Empat tahap — menghubungi → menunggu → berpikir → menulis — jadi fakta, bukan animasi yang berpura-pura tahu. |
+| **Spinner braille + detik berjalan** | Spinner membuktikan aplikasinya hidup; angka detiknya yang membuat penantian bisa dinilai — 4 detik wajar, 70 detik alasan menekan stop. |
+| **Bingkai spinner digerakkan JS, bukan CSS** | Yang berubah adalah ISI karakter; `content` di keyframe belum bisa diandalkan lintas browser, dan memutar elemen dengan `transform` melanggar aturan "tidak ada lengkungan di mana pun". |
+| **Cuplikan pikiran tampil selagi menalar, tombol `thinking` setelahnya** | Saat belum ada satu kata pun, baris terakhir reasoning adalah satu-satunya bukti ada yang bergerak. Begitu jawaban mengalir, ia berhenti berguna. |
+| **Nama di setiap gelembung: satu kata untuk manusia, nama + id untuk agent** | Kantor berisi 20 karyawan menghasilkan 20 transkrip yang terlihat persis sama. Nama panggilan diambil dari Clerk lewat `viewerName()` — sengaja TIDAK ditaruh di `Office`, karena perakit laporan tidak butuh nama siapa pun dan tidak perlu membayar panggilan Clerk tambahan. |
+| **Balasan slash command diberi nama `lokal`, bukan nama agent** | Ia dihitung di browser dan tidak pernah menyentuh paw.wheza.id. Menamainya dengan nama agent adalah kebohongan kecil yang merusak arti semua nama lain. |
+| **Sesi dibuka satu giliran tersembunyi (`prime`), bukan sapaan statis** | QwenPaw `/api/console/chat` tidak punya slot *system message* — satu bentuk pesan saja. Jadi framing dilakukan seperti yang memang mungkin: giliran pertama yang tidak pernah ditampilkan, dan yang tampil hanya jawabannya. |
+| **Instruksi sesi disusun SERVER (`lib/prompt.ts`), tidak dikirim sebagai prop** | Isinya aset produk yang tidak perlu ada di HTML tiap halaman, dan fakta kantor di dalamnya tidak boleh bisa ditukar dari devtools — alasan yang sama dengan token yang tidak pernah menyeberang. |
+| **Manajer gedung dibekali keadaan kantor; karyawan tidak** | Sambutan yang menyebut "satu orang belum punya identitas" berguna; menyuapi karyawan identitasnya sendiri yang sudah ada di `PROFILE.md` cuma menambah token. |
+| **Halaman `/agent/[id]` TIDAK auto-prime** | Halaman itu dibuka untuk MEMERIKSA, dan kebanyakan kunjungan berakhir tanpa satu pesan pun. Auto-prime di sana = satu panggilan QwenPaw tiap kali seseorang mengklik nama. |
+| **Gagal menyusun instruksi tidak menggagalkan pembukaan** | Sambutan yang lebih tumpul jauh lebih baik daripada layar chat yang dibuka dengan pesan error. |
+
+### Bug yang ikut ketahuan
+
+`autoGrow` di composer menulis `height = "160"` tanpa satuan — nilai tidak sah,
+jadi browser mengabaikannya dan kotak ketik tidak pernah tumbuh. Menambahkan
+`px` justru memperlihatkan masalah kedua: pengukuran pertama terjadi sebelum
+layout selesai, dan `scrollHeight` saat itu mengembalikan tinggi kolom (752px),
+cukup untuk mengunci composer setinggi 160px seumur halaman. Perbaikannya:
+kotak kosong tidak pernah diberi tinggi eksplisit — selama kosong, `rows=1` +
+`min-h-8` yang menentukan.
+
+### Diverifikasi
+
+Dijalankan sungguhan terhadap paw.wheza.id: sesi dibuka sendiri oleh manajer
+gedung ("Kantormu sekarang kosong — belum ada satu pun karyawan…"), instruksi
+sesinya tidak muncul di transkrip, nama tampil di tiap gelembung, indikator
+berjalan lewat keempat tahapnya, `/new` membuka sesi baru dengan sambutan baru,
+`/help` bernama `lokal`. Diperiksa di gelap & terang, desktop & 375px. Tidak ada
+error di konsol maupun di log server.
+
+---
+
 ## 2026-07-31 · Iterasi 7 — layar depan menampilkan HASIL, bukan jumlah
 
 ### Celah yang ditutup
