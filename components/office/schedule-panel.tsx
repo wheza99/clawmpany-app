@@ -60,13 +60,21 @@ export function SchedulePanel({
   initialJobs,
 }: {
   agentId: string;
-  initialJobs: Job[];
+  /**
+   * Kosong (undefined) = panel memuat sendiri. Itu jalur dialog manajemen,
+   * yang dibuka dari chat dan karena itu tidak punya server component yang
+   * bisa memuat lebih dulu.
+   */
+  initialJobs?: Job[];
 }) {
-  // Data awal datang dari server component, bukan dari effect. Selain
+  // Bila ada, data awal datang dari server component, bukan dari effect. Selain
   // menghilangkan satu waterfall di browser, ini juga membuat panel punya isi
   // sejak render pertama — tidak ada kedipan "Membaca…" untuk data yang
   // sebenarnya sudah tersedia saat halaman dikirim.
-  const [jobs, setJobs] = useState<Job[]>(initialJobs);
+  const selfLoad = initialJobs === undefined;
+
+  const [jobs, setJobs] = useState<Job[]>(initialJobs ?? []);
+  const [loading, setLoading] = useState(selfLoad);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [editing, setEditing] = useState<string | null>(null);
@@ -85,8 +93,20 @@ export function SchedulePanel({
       setError(null);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Gagal memuat jadwal.");
+    } finally {
+      // Dimatikan di sini, bukan di effect: pemuatan pertama dan tiap muat
+      // ulang sesudah aksi lewat jalur yang sama, jadi keterangan "Membaca…"
+      // tidak punya cara untuk tertinggal menyala.
+      setLoading(false);
     }
   }, [base]);
+
+  useEffect(() => {
+    if (!selfLoad) return;
+    void (async () => {
+      await load();
+    })();
+  }, [selfLoad, load]);
 
   async function act(label: string, run: () => Promise<Response>) {
     setBusy(label);
@@ -141,7 +161,9 @@ export function SchedulePanel({
     <TermBlock label={`Jadwal kerja · ${jobs.length}`} tone={jobs.length ? "default" : "dim"}>
       {error ? <p className="text-term-warn mb-2 text-xs">{error}</p> : null}
 
-      {jobs.length === 0 ? (
+      {loading ? (
+        <p className="text-term-dim text-xs">Membaca jadwal…</p>
+      ) : jobs.length === 0 ? (
         <p className="text-term-dim mb-3 text-xs">
           Belum ada. Tanpa jadwal, dia hanya bekerja saat kamu mengetik — dan itu
           berarti kamu tetap yang jadi mesinnya.
@@ -249,7 +271,7 @@ export function SchedulePanel({
             onCancel={() => setAdding(false)}
           />
         </div>
-      ) : (
+      ) : loading ? null : (
         <Mini onClick={startAdd}>+ Tambah jadwal</Mini>
       )}
     </TermBlock>

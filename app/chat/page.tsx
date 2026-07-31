@@ -40,6 +40,10 @@ export default async function ChatPage() {
           agentName="clawmpany"
           userName={viewer}
           prime
+          // Tanpa `manageable`: manajer gedung milik gedung, bukan karyawan
+          // kantor ini — ia tidak pernah masuk roster, jadi semua rute
+          // manajemennya menjawab 404. Foto yang bisa diklik di sini cuma
+          // jalan buntu yang terbaca sebagai kerusakan.
         />
       </div>
     </div>

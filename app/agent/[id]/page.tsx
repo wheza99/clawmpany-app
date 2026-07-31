@@ -5,6 +5,7 @@ import { Thread } from "@/components/chat/thread";
 import { EquipmentPanel } from "@/components/office/equipment-panel";
 import { IdentityPanel } from "@/components/office/identity-panel";
 import { SchedulePanel } from "@/components/office/schedule-panel";
+import { SkillsPanel } from "@/components/office/skills-panel";
 import { OfficeHeader } from "@/components/office/header";
 import { TermBlock, TermGutter } from "@/components/terminal/primitives";
 import { authEnabled, currentOffice, viewerName } from "@/lib/office";
@@ -14,12 +15,14 @@ import {
   listChats,
   listCronJobs,
   listMcpServers,
+  listSkills,
   looksUnconfigured,
   probeMcpTools,
   readCronState,
   readInstruction,
   readChat,
   readWorkspaceFile,
+  skillBody,
 } from "@/lib/qwenpaw";
 
 export const dynamic = "force-dynamic";
@@ -48,12 +51,13 @@ export default async function AgentPage({
   // "akses ditolak", yang justru mengonfirmasi bahwa agentnya eksis.
   if (!office.roster.includes(id)) notFound();
 
-  const [directory, chats, jobs, profile, soul] = await Promise.all([
+  const [directory, chats, jobs, profile, soul, agentsFile] = await Promise.all([
     listAgents().catch(() => []),
     listChats(id).catch(() => []),
     listCronJobs(id).catch(() => []),
     readWorkspaceFile(id, "PROFILE.md").catch(() => ""),
     readWorkspaceFile(id, "SOUL.md").catch(() => ""),
+    readWorkspaceFile(id, "AGENTS.md").catch(() => ""),
   ]);
 
   const agent = directory.find((a) => a.id === id);
@@ -67,7 +71,7 @@ export default async function AgentPage({
   // effect di browser: satu waterfall lebih sedikit, dan panelnya sudah berisi
   // sejak render pertama. Setelah itu panel memuat ulang sendiri tiap kali
   // penggunanya mengubah sesuatu.
-  const [sessions, jobRows, tools] = await Promise.all([
+  const [sessions, jobRows, tools, skills] = await Promise.all([
     Promise.all(
       recent.map(async (c) => ({
         session: c,
@@ -86,6 +90,12 @@ export default async function AgentPage({
       })),
     ),
     listMcpServers(id).catch(() => []),
+    // `content` dikirim tanpa frontmatter — sama seperti yang dikembalikan
+    // /api/agents/[id]/skills, supaya panelnya tidak perlu tahu dari jalur mana
+    // isinya datang.
+    listSkills(id)
+      .then((list) => list.map((s) => ({ ...s, content: skillBody(s.content) })))
+      .catch(() => []),
   ]);
 
   // Tes koneksi hanya untuk peralatan yang menyala — yang dimatikan sudah pasti
@@ -127,6 +137,8 @@ export default async function AgentPage({
           initialCatalog={offers()}
         />
 
+        <SkillsPanel agentId={id} initialSkills={skills} />
+
         <TermBlock label="Pekerjaan terakhir">
           {sessions.length === 0 ? (
             <p className="text-term-dim text-xs">Belum ada satu pun sesi kerja.</p>
@@ -159,6 +171,7 @@ export default async function AgentPage({
           name={agent.name}
           profile={profile}
           soul={soul}
+          agents={agentsFile}
           configured={!looksUnconfigured(agent.description || "")}
         />
 
@@ -174,7 +187,8 @@ export default async function AgentPage({
               agentId={id}
               agentName={agent.name}
               userName={viewer}
-              greeting={`Kamu sedang bicara dengan ${agent.name}. Pertanyaan di sini masuk ke sesinya sendiri.`}
+              manageable
+              greeting={`Kamu sedang bicara dengan ${agent.name}. Pertanyaan di sini masuk ke sesinya sendiri. Klik fotonya di atas jawaban untuk mengaturnya.`}
             />
           </div>
         </TermBlock>

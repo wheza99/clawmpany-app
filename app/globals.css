@@ -156,6 +156,13 @@
     color: var(--primary-foreground);
   }
 
+  /* Latar modal. Hitam pekat di kedua tema, bukan warna --background yang
+     dipudarkan: di tema gelap latar dan modal nyaris sewarna, jadi versi
+     "dipudarkan" tidak menghasilkan tepi yang terlihat sama sekali. */
+  dialog::backdrop {
+    background: rgb(0 0 0 / 0.55);
+  }
+
   * {
     scrollbar-width: thin;
     scrollbar-color: var(--term-rule) transparent;
