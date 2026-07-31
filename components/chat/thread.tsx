@@ -3,10 +3,11 @@
 import { useCallback, useEffect, useRef, useState, type FC } from "react";
 import { useTheme } from "next-themes";
 
-import { chatStream, newId, newSessionId } from "@/lib/paw";
+import { chatStream, newId, newSessionId, type PawPhase } from "@/lib/paw";
 import { cn } from "@/lib/utils";
 import { APP_VERSION } from "@/lib/version";
 import { MarkdownText } from "@/components/markdown-text";
+import { Elapsed, Spinner } from "@/components/terminal/spinner";
 import {
   TermBlock,
   TermGutter,
@@ -32,6 +33,18 @@ import {
  * in `handleCommand`: the command is echoed into the transcript the way a shell
  * echoes input, and its result lands as a terminal block below it, keeping the
  * "everything happens in the conversation" feel without any sidebar or menu.
+ *
+ * Tiga hal yang membuat transkrip ini bisa dibaca sambil berjalan:
+ *
+ *  1. SETIAP giliran melaporkan tahapnya (lib/paw.ts `PawPhase`) — spinner yang
+ *     berputar plus "berpikir… 12.4s", bukan kursor berkedip yang tidak bisa
+ *     dibedakan dari aplikasi yang menggantung.
+ *  2. Setiap gelembung diberi NAMA — satu kata untuk manusianya, nama (dan id)
+ *     agent untuk lawan bicaranya. Tanpa itu, kantor berisi 20 karyawan
+ *     menghasilkan 20 transkrip yang terlihat persis sama.
+ *  3. `prime` membuka sesi dengan satu giliran yang tidak pernah ditampilkan:
+ *     instruksinya disusun server (lib/prompt.ts), yang muncul di layar hanya
+ *     jawaban agent-nya.
  */
 
 interface CommandBlock {
@@ -48,11 +61,23 @@ interface ChatMessage {
   reasoning?: string;
   error?: boolean;
   streaming?: boolean;
+  /** Tahap giliran ini selagi `streaming`. */
+  phase?: PawPhase;
+  /** `Date.now()` saat giliran dikirim — sumber angka detik di indikator. */
+  startedAt?: number;
   /** Render as a labelled terminal block instead of markdown text. */
   block?: CommandBlock;
 }
 
 const THEME_COMMANDS = new Set(["light", "dark", "system"]);
+
+/** Apa yang sebenarnya sedang terjadi, per tahap aliran. */
+const PHASE_LABEL: Record<PawPhase, string> = {
+  connecting: "menghubungi paw.wheza.id",
+  waiting: "menunggu balasan",
+  thinking: "berpikir",
+  writing: "menulis jawaban",
+};
 
 export interface ThreadProps {
   /**
@@ -61,11 +86,28 @@ export interface ThreadProps {
    * — jadi mengganti nilai ini di browser tidak membuka agent orang lain.
    */
   agentId?: string;
-  /** Kalimat pembuka saat transkrip masih kosong. */
+  /** Nama yang tampil di gelembung agent. Jatuh ke `agentId` kalau kosong. */
+  agentName?: string;
+  /** Nama panggilan penggunanya, SATU KATA (lihat lib/office.ts viewerName). */
+  userName?: string;
+  /** Kalimat pembuka saat transkrip masih kosong. Diabaikan bila `prime`. */
   greeting?: string;
+  /**
+   * Buka sesi dengan giliran tersembunyi: server menyusun instruksinya, agent
+   * menjawab, dan hanya jawaban itu yang masuk transkrip. Satu panggilan ke
+   * QwenPaw per sesi — jadi hanya dinyalakan di layar yang memang dibuka untuk
+   * mengobrol, bukan di setiap halaman yang kebetulan memuat komponen ini.
+   */
+  prime?: boolean;
 }
 
-export const Thread: FC<ThreadProps> = ({ agentId, greeting }) => {
+export const Thread: FC<ThreadProps> = ({
+  agentId,
+  agentName,
+  userName = "kamu",
+  greeting,
+  prime = false,
+}) => {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState("");
   const [isRunning, setIsRunning] = useState(false);
@@ -81,6 +123,7 @@ export const Thread: FC<ThreadProps> = ({ agentId, greeting }) => {
   const stickToBottomRef = useRef(true);
 
   const isEmpty = messages.length === 0;
+  const speaker = agentName || agentId || "agent";
 
   const nearBottom = useCallback(() => {
     const el = scrollerRef.current;
@@ -113,15 +156,19 @@ export const Thread: FC<ThreadProps> = ({ agentId, greeting }) => {
   // ----------------------------------------------------------------- commands
 
   /** Echo `raw` as a user line, then a labelled block as the reply. */
-  const echoBlock = (raw: string, block: CommandBlock) => {
+  const echoBlock = useCallback((raw: string, block: CommandBlock) => {
     setMessages((prev) => [
       ...prev,
       { id: newId(), role: "user", text: raw },
       { id: newId(), role: "assistant", text: "", block },
     ]);
-  };
+  }, []);
 
-  const handleCommand = (raw: string) => {
+  // Naik tiap `/new`. Efek pembuka membaca angka ini, jadi sesi baru dibuka
+  // ulang dengan sambutan baru alih-alih halaman kosong.
+  const [primeNonce, setPrimeNonce] = useState(0);
+
+  const handleCommand = useCallback((raw: string) => {
     const body = raw.slice(1).trim().toLowerCase();
     const name = body.split(/\s+/)[0] ?? "";
 
@@ -141,9 +188,11 @@ export const Thread: FC<ThreadProps> = ({ agentId, greeting }) => {
 
     if (name === "new" || name === "clear") {
       // Wipe the transcript and start a fresh QwenPaw session. No echo — the
-      // empty state (banner) returning is the confirmation.
+      // empty state (banner, atau sambutan baru bila `prime`) yang jadi
+      // konfirmasinya.
       setMessages([]);
       sessionIdRef.current = newSessionId();
+      setPrimeNonce((n) => n + 1);
       return;
     }
 
@@ -166,32 +215,35 @@ export const Thread: FC<ThreadProps> = ({ agentId, greeting }) => {
       tone: "warn",
       note: `unknown command: ${raw} — type /help for the list.`,
     });
-  };
+    // setTheme stabil dari next-themes; resolvedTheme ikut supaya catatan
+    // "/system" selalu menyebut tema yang benar-benar sedang berlaku.
+  }, [echoBlock, setTheme, resolvedTheme]);
 
   // --------------------------------------------------------------------- send
 
-  const send = useCallback(
-    async (text: string) => {
-      const trimmed = text.trim();
-      if (!trimmed || isRunning) return;
-
-      // Slash commands are intercepted locally and never sent to QwenPaw.
-      if (trimmed.startsWith("/")) {
-        handleCommand(trimmed);
-        setInput("");
-        return;
-      }
-
-      const userMsg: ChatMessage = { id: newId(), role: "user", text: trimmed };
+  /**
+   * Satu giliran chat. `hidden` menahan gelembung penggunanya — dipakai giliran
+   * pembuka, yang isinya instruksi sesi dan bukan sesuatu yang pernah diketik
+   * orang, jadi menampilkannya akan berbohong soal siapa yang bicara.
+   */
+  const runTurn = useCallback(
+    async (text: string, hidden = false) => {
       const assistantId = newId();
-      const assistantMsg: ChatMessage = {
-        id: assistantId,
-        role: "assistant",
-        text: "",
-        streaming: true,
-      };
-      setMessages((prev) => [...prev, userMsg, assistantMsg]);
-      setInput("");
+      const opening: ChatMessage[] = hidden
+        ? []
+        : [{ id: newId(), role: "user", text }];
+      setMessages((prev) => [
+        ...prev,
+        ...opening,
+        {
+          id: assistantId,
+          role: "assistant",
+          text: "",
+          streaming: true,
+          phase: "connecting",
+          startedAt: Date.now(),
+        },
+      ]);
       setIsRunning(true);
       stickToBottomRef.current = true;
 
@@ -199,12 +251,13 @@ export const Thread: FC<ThreadProps> = ({ agentId, greeting }) => {
       abortRef.current = ctl;
 
       try {
-        const reply = await chatStream(trimmed, sessionIdRef.current, {
+        const reply = await chatStream(hidden ? "" : text, sessionIdRef.current, {
           signal: ctl.signal,
           agentId,
+          prime: hidden,
+          onPhase: (phase) => patchMessage(assistantId, { phase }),
           onText: (full) => patchMessage(assistantId, { text: full }),
-          onReasoning: (full) =>
-            patchMessage(assistantId, { reasoning: full }),
+          onReasoning: (full) => patchMessage(assistantId, { reasoning: full }),
         });
         patchMessage(assistantId, { text: reply, streaming: false });
       } catch (err) {
@@ -224,12 +277,38 @@ export const Thread: FC<ThreadProps> = ({ agentId, greeting }) => {
         abortRef.current = null;
       }
     },
-    // setTheme/resolvedTheme are stable from next-themes; listed so the command
-    // handler always sees the latest resolved theme for the /system note.
     // agentId is here because switching employees must not reuse a closure
     // still pointed at the previous one.
-    [isRunning, setTheme, resolvedTheme, agentId],
+    [agentId],
   );
+
+  const send = useCallback(
+    async (text: string) => {
+      const trimmed = text.trim();
+      if (!trimmed || isRunning) return;
+
+      // Slash commands are intercepted locally and never sent to QwenPaw.
+      if (trimmed.startsWith("/")) {
+        handleCommand(trimmed);
+        setInput("");
+        return;
+      }
+
+      setInput("");
+      await runTurn(trimmed);
+    },
+    [isRunning, runTurn, handleCommand],
+  );
+
+  // Giliran pembuka. Penjaganya sebuah ref, bukan state, supaya efek yang
+  // dijalankan dua kali (StrictMode di dev) tetap menghasilkan SATU panggilan
+  // ke QwenPaw — bukan dua sambutan yang saling menimpa.
+  const primedRef = useRef(-1);
+  useEffect(() => {
+    if (!prime || primedRef.current === primeNonce) return;
+    primedRef.current = primeNonce;
+    void runTurn("", true);
+  }, [prime, primeNonce, runTurn]);
 
   const stop = useCallback(() => {
     abortRef.current?.abort();
@@ -245,17 +324,27 @@ export const Thread: FC<ThreadProps> = ({ agentId, greeting }) => {
         <div
           className={cn(
             "mx-auto flex w-full max-w-[46rem] flex-1 flex-col px-4 pt-6 sm:px-6",
-            isEmpty && "justify-center",
+            isEmpty && !prime && "justify-center",
           )}
         >
-          {isEmpty ? <Banner greeting={greeting} /> : null}
+          {isEmpty ? (
+            // Dengan `prime`, sambutan datang dari agent-nya sendiri beberapa
+            // ratus milidetik lagi. Menampilkan banner statis lebih dulu hanya
+            // menghasilkan kedipan; baris ini yang menempati tempatnya.
+            prime ? <BootLine /> : <Banner greeting={greeting} />
+          ) : null}
 
           <div className="mb-10 flex flex-col gap-6">
             {messages.map((m) =>
               m.role === "user" ? (
-                <UserMessage key={m.id} text={m.text} />
+                <UserMessage key={m.id} text={m.text} name={userName} />
               ) : (
-                <AssistantMessage key={m.id} message={m} />
+                <AssistantMessage
+                  key={m.id}
+                  message={m}
+                  name={speaker}
+                  agentId={agentId}
+                />
               ),
             )}
           </div>
@@ -303,44 +392,138 @@ const Banner: FC<{ greeting?: string }> = ({ greeting }) => (
   </div>
 );
 
+/** Satu baris sementara sebelum gelembung pertama muncul. */
+const BootLine: FC = () => (
+  <div className="text-term-dim mb-8 flex items-baseline gap-1.5 text-[11px]">
+    <Spinner className="text-term-prompt" />
+    <span>menyiapkan percakapan…</span>
+  </div>
+);
+
 // ------------------------------------------------------------------ messages
 
-const UserMessage: FC<{ text: string }> = ({ text }) => (
-  <div className="animate-fade-in flex gap-1">
-    <TermGutter marker="❯" className="text-term-prompt text-sm leading-6" />
-    <div className="text-foreground min-w-0 flex-1 text-sm leading-6 wrap-break-word whitespace-pre-wrap">
+/**
+ * Baris nama di atas setiap gelembung.
+ *
+ * Penandanya dibiarkan di kolom gutter selebar 1.25em dan diberi `text-sm`
+ * supaya em-nya sama dengan badan pesan — itulah yang membuat nama dan teks di
+ * bawahnya berdiri di kolom yang sama persis, berapa pun ukuran font namanya.
+ */
+const MessageHeader: FC<{
+  marker: string;
+  name: string;
+  /** id agent, kalau berbeda dari namanya. */
+  sub?: string;
+  tone?: "prompt" | "dim";
+  children?: React.ReactNode;
+}> = ({ marker, name, sub, tone = "prompt", children }) => {
+  const ink = tone === "dim" ? "text-term-dim" : "text-term-prompt";
+  return (
+    // Tanpa `gap` di sumbu-x: jarak diatur per elemen, supaya nama benar-benar
+    // menempel di tepi kanan kolom gutter dan sejajar dengan badan pesannya.
+    <div className="flex flex-wrap items-baseline gap-y-0.5">
+      <TermGutter marker={marker} className={cn("text-sm leading-5", ink)} />
+      <span className={cn("text-[11px] leading-5 font-medium tracking-wide", ink)}>
+        {name}
+      </span>
+      {sub && sub !== name ? (
+        <span className="text-term-dim ml-2 text-[10px] leading-5">{sub}</span>
+      ) : null}
+      {children}
+    </div>
+  );
+};
+
+const UserMessage: FC<{ text: string; name: string }> = ({ text, name }) => (
+  <div className="animate-fade-in">
+    <MessageHeader marker="❯" name={name} />
+    <div className="text-foreground ml-[1.25em] min-w-0 text-sm leading-6 wrap-break-word whitespace-pre-wrap">
       {text}
     </div>
   </div>
 );
 
-const AssistantMessage: FC<{ message: ChatMessage }> = ({ message }) => (
-  <div className="animate-fade-in">
-    <div className="text-foreground min-w-0 text-sm leading-relaxed wrap-break-word">
-      {message.reasoning && message.reasoning.trim() && !message.block ? (
-        <ReasoningBlock text={message.reasoning} />
-      ) : null}
+const AssistantMessage: FC<{
+  message: ChatMessage;
+  name: string;
+  agentId?: string;
+}> = ({ message, name, agentId }) => {
+  // Selagi menalar dan belum satu kata pun ditulis, cuplikan pikirannya JAUH
+  // lebih menjelaskan daripada tombol "thinking" yang tertutup. Begitu jawaban
+  // mulai mengalir, cuplikan itu berhenti berguna dan tombolnya kembali.
+  const peeking = Boolean(message.streaming && !message.text && message.reasoning);
 
+  return (
+    <div className="animate-fade-in">
       {message.block ? (
-        <CommandBlockView block={message.block} />
-      ) : message.error ? (
-        <div className="my-2">
-          <TermBlock label="error" tone="warn">
-            <p className="text-destructive text-xs leading-relaxed wrap-break-word whitespace-pre-wrap">
-              {message.text}
-            </p>
-          </TermBlock>
-        </div>
-      ) : message.text ? (
-        <MarkdownText content={message.text} />
-      ) : message.streaming ? (
-        <span className="text-term-prompt text-sm" aria-label="Working">
-          <span className="animate-pulse">█</span>
-        </span>
-      ) : null}
+        // Balasan slash command tidak datang dari agent mana pun — ia dihitung
+        // di browser ini. Menamainya dengan nama agent akan menyesatkan.
+        <MessageHeader marker="▸" name="lokal" tone="dim" />
+      ) : (
+        <MessageHeader marker="■" name={name} sub={agentId}>
+          {message.streaming ? (
+            <StreamStatus phase={message.phase} startedAt={message.startedAt} />
+          ) : null}
+        </MessageHeader>
+      )}
+
+      <div className="text-foreground ml-[1.25em] min-w-0 text-sm leading-relaxed wrap-break-word">
+        {peeking ? <ReasoningPeek text={message.reasoning ?? ""} /> : null}
+
+        {message.reasoning && message.reasoning.trim() && !message.block && !peeking ? (
+          <ReasoningBlock text={message.reasoning} />
+        ) : null}
+
+        {message.block ? (
+          <CommandBlockView block={message.block} />
+        ) : message.error ? (
+          <div className="my-2">
+            <TermBlock label="error" tone="warn">
+              <p className="text-destructive text-xs leading-relaxed wrap-break-word whitespace-pre-wrap">
+                {message.text}
+              </p>
+            </TermBlock>
+          </div>
+        ) : message.text ? (
+          <MarkdownText content={message.text} />
+        ) : !message.streaming ? (
+          // Stop ditekan sebelum satu kata pun sampai. Gelembung kosong tanpa
+          // keterangan terbaca seperti balasan yang hilang.
+          <p className="text-term-dim text-xs leading-6">(dihentikan)</p>
+        ) : null}
+      </div>
     </div>
-  </div>
+  );
+};
+
+/**
+ * `⠹ berpikir… 12.4s` — apa yang sedang terjadi, dan sudah berapa lama.
+ *
+ * Hanya labelnya yang masuk `role="status"`: spinner dan angka detik berubah
+ * sepuluh kali per detik, dan mengumumkan itu ke pembaca layar akan mengubah
+ * satu penantian jadi ratusan interupsi.
+ */
+const StreamStatus: FC<{ phase?: PawPhase; startedAt?: number }> = ({
+  phase = "connecting",
+  startedAt,
+}) => (
+  <span className="text-term-dim ml-auto flex shrink-0 items-baseline gap-1.5 text-[11px] leading-5">
+    <Spinner className="text-term-prompt" />
+    <span role="status">{PHASE_LABEL[phase]}…</span>
+    {startedAt ? <Elapsed since={startedAt} /> : null}
+  </span>
 );
+
+/** Baris terakhir dari pikirannya, dipotong — bukti bahwa ada yang bergerak. */
+const ReasoningPeek: FC<{ text: string }> = ({ text }) => {
+  const line = text.trim().split("\n").filter(Boolean).at(-1) ?? "";
+  if (!line) return null;
+  return (
+    <p className="text-term-dim animate-fade-in my-1 truncate text-[11px] leading-5 italic">
+      {line}
+    </p>
+  );
+};
 
 /** A labelled terminal block rendered as a tool-style reply (theme, help…). */
 const CommandBlockView: FC<{ block: CommandBlock }> = ({ block }) => (
@@ -395,11 +578,21 @@ const Composer: FC<{
 }> = ({ value, onChange, onSend, onStop, isRunning }) => {
   const ref = useRef<HTMLTextAreaElement | null>(null);
 
+  /**
+   * Tumbuh mengikuti isi, sampai `max-h-40`.
+   *
+   * Kotak kosong TIDAK pernah diberi tinggi eksplisit: pengukuran pertama
+   * terjadi sebelum layout halaman selesai, dan `scrollHeight` di saat itu
+   * mengembalikan angka tinggi kolom (ratusan piksel), bukan tinggi satu baris
+   * — cukup untuk mengunci composer setinggi 160px seumur halaman. Selama
+   * kosong, biarkan `rows=1` + `min-h-8` yang menentukan.
+   */
   const autoGrow = () => {
     const el = ref.current;
     if (!el) return;
     el.style.height = "auto";
-    el.style.height = `${Math.min(el.scrollHeight, 160)}`;
+    if (!el.value) return;
+    el.style.height = `${Math.min(el.scrollHeight, 160)}px`;
   };
 
   useEffect(() => {
