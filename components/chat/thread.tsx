@@ -3,10 +3,12 @@
 import { useCallback, useEffect, useRef, useState, type FC } from "react";
 import { useTheme } from "next-themes";
 
+import { scanForHireDraft } from "@/lib/hire-draft";
 import { chatStream, newId, newSessionId, type PawPhase } from "@/lib/paw";
 import { cn } from "@/lib/utils";
 import { APP_VERSION } from "@/lib/version";
 import { MarkdownText } from "@/components/markdown-text";
+import { HireDraftCard } from "@/components/office/hire-draft-card";
 import { Elapsed, Spinner } from "@/components/terminal/spinner";
 import {
   TermBlock,
@@ -34,7 +36,7 @@ import {
  * echoes input, and its result lands as a terminal block below it, keeping the
  * "everything happens in the conversation" feel without any sidebar or menu.
  *
- * Tiga hal yang membuat transkrip ini bisa dibaca sambil berjalan:
+ * Empat hal yang membuat transkrip ini bisa dibaca sambil berjalan:
  *
  *  1. SETIAP giliran melaporkan tahapnya (lib/paw.ts `PawPhase`) — spinner yang
  *     berputar plus "berpikir… 12.4s", bukan kursor berkedip yang tidak bisa
@@ -45,6 +47,11 @@ import {
  *  3. `prime` membuka sesi dengan satu giliran yang tidak pernah ditampilkan:
  *     instruksinya disusun server (lib/prompt.ts), yang muncul di layar hanya
  *     jawaban agent-nya.
+ *  4. Kanal tool-call yang tidak ada itu juga alasan merekrut lewat chat memakai
+ *     SATU BLOK ```json di dalam balasan biasa (lib/hire-draft.ts). Manajer
+ *     gedung menulis usulannya sebagai teks; `AssistantBody` memungutnya dan
+ *     menukarnya dengan kartu konfirmasi. Kalau pemungutnya gagal, yang tersisa
+ *     adalah blok kode yang terbaca manusia — bukan gelembung kosong.
  */
 
 interface CommandBlock {
@@ -485,7 +492,7 @@ const AssistantMessage: FC<{
             </TermBlock>
           </div>
         ) : message.text ? (
-          <MarkdownText content={message.text} />
+          <AssistantBody text={message.text} />
         ) : !message.streaming ? (
           // Stop ditekan sebelum satu kata pun sampai. Gelembung kosong tanpa
           // keterangan terbaca seperti balasan yang hilang.
@@ -522,6 +529,49 @@ const ReasoningPeek: FC<{ text: string }> = ({ text }) => {
     <p className="text-term-dim animate-fade-in my-1 truncate text-[11px] leading-5 italic">
       {line}
     </p>
+  );
+};
+
+/**
+ * Isi satu balasan: markdown biasa, kecuali kalau di dalamnya ada usulan
+ * rekrut — yang ditukar dengan kartu konfirmasi, tetap di tempatnya semula
+ * supaya kalimat sebelum dan sesudahnya masih membingkainya.
+ */
+const AssistantBody: FC<{ text: string }> = ({ text }) => {
+  const scan = scanForHireDraft(text);
+
+  if (scan.state === "none") return <MarkdownText content={text} />;
+
+  if (scan.state === "pending") {
+    return (
+      <>
+        {scan.before.trim() ? <MarkdownText content={scan.before} /> : null}
+        <p className="text-term-dim term-caret my-2 text-xs">menyusun usulan karyawan</p>
+      </>
+    );
+  }
+
+  return (
+    <>
+      {scan.before.trim() ? <MarkdownText content={scan.before} /> : null}
+      {scan.state === "ready" ? (
+        <HireDraftCard draft={scan.draft} />
+      ) : (
+        // Usulan yang cacat TIDAK disembunyikan. Kartu yang diam-diam hilang
+        // membuat manajer gedung tampak mengabaikan permintaan; menyebut apa
+        // yang salah membuat "coba lagi" jadi kalimat berikutnya yang wajar.
+        <div className="my-2">
+          <TermBlock label="Usulan tidak terbaca" tone="warn">
+            <p className="text-xs leading-relaxed">{scan.reason}</p>
+            <p className="text-term-dim mt-1.5 text-[11px]">
+              Minta manajer gedung menyusun ulang usulannya, atau rekrut dari
+              katalog di halaman depan.
+            </p>
+          </TermBlock>
+        </div>
+      )}
+      {scan.after.trim() ? <MarkdownText content={scan.after} /> : null}
+    </>
   );
 };
 

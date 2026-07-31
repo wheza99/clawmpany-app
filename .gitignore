@@ -39,3 +39,6 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# Salinan AGENTS.md manajer gedung sebelum sync (dibuat otomatis).
+concierge/.previous-AGENTS.md

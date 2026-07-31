@@ -1,8 +1,14 @@
 // POST /api/hire — rekrut satu karyawan untuk kantor yang sedang aktif.
 //
+// Yang dikirim ke sini adalah USULAN YANG SUDAH DISETUJUI (lihat
+// lib/hire-draft.ts): nama, deskripsi, dan isi ketiga file tulang punggung apa
+// adanya. Route ini tidak menyusun ulang isinya — yang ditulis ke workspace
+// agent persis yang tadi dibaca pemiliknya di layar konfirmasi. Kalau server
+// boleh menyusun sendiri, "sudah saya periksa" berhenti berarti apa-apa.
+//
 // Satu permintaan melakukan EMPAT hal sekaligus, dan itu memang intinya:
 //   1. buat agent di QwenPaw
-//   2. tulis PROFILE.md + SOUL.md-nya            → dia tahu dirinya siapa
+//   2. tulis AGENTS.md + PROFILE.md + SOUL.md    → dia tahu dirinya siapa
 //   3. pasang jadwal kerja pertamanya            → dia bekerja tanpa disuruh
 //   4. catat id-nya di roster kantor (Clerk)     → dia muncul di laporan
 //
@@ -13,8 +19,8 @@
 // tapi kegagalannya dilaporkan, tidak ditelan.
 import { NextResponse } from "next/server";
 
+import { BACKBONE_FILES, readDraft } from "@/lib/hire-draft";
 import { currentOffice, saveRoster } from "@/lib/office";
-import { buildProfile, buildSoul, findRole } from "@/lib/roles";
 import { createAgent, createCronJob, deleteAgent, writeWorkspaceFile } from "@/lib/qwenpaw";
 
 export const runtime = "nodejs";
@@ -43,29 +49,27 @@ export async function POST(req: Request) {
     );
   }
 
-  let body: { roleKey?: unknown; name?: unknown; extra?: unknown };
+  let body: unknown;
   try {
     body = await req.json();
   } catch {
     return NextResponse.json({ error: "Body bukan JSON." }, { status: 400 });
   }
 
-  const roleKey = typeof body.roleKey === "string" ? body.roleKey : "";
-  const name = typeof body.name === "string" ? body.name.trim() : "";
-  const extra = typeof body.extra === "string" ? body.extra : "";
-
-  const role = findRole(roleKey);
-  if (!role) return NextResponse.json({ error: "Jabatan tidak dikenal." }, { status: 400 });
-  if (!name) return NextResponse.json({ error: "Nama karyawan wajib diisi." }, { status: 400 });
-  if (name.length > 40) {
-    return NextResponse.json({ error: "Nama terlalu panjang (maks 40)." }, { status: 400 });
+  // Diperiksa ulang di sini walau browser sudah memeriksanya sebelum menampilkan
+  // kartu: usulan yang datang lewat chat dikarang model bahasa dan melewati
+  // browser sebagai teks biasa, jadi "sudah lolos di sana" bukan jaminan.
+  const read = readDraft(body);
+  if ("error" in read) {
+    return NextResponse.json({ error: read.error }, { status: 400 });
   }
+  const { draft, role } = read;
 
-  const agentId = makeAgentId(name);
+  const agentId = makeAgentId(draft.name);
 
   // 1. Otak agent di QwenPaw.
   try {
-    await createAgent(agentId, name);
+    await createAgent(agentId, draft.name);
   } catch (e) {
     return NextResponse.json(
       { error: e instanceof Error ? e.message : "QwenPaw menolak membuat agent." },
@@ -75,14 +79,15 @@ export async function POST(req: Request) {
 
   // 2. Identitasnya. Gagal di sini berarti yang tercipta adalah cangkang
   //    kosong — jadi agentnya dibatalkan, bukan dibiarkan menghuni roster.
+  //
+  //    KETIGANYA ditulis, bukan dua. Saat agent dibuat, QwenPaw menyalin
+  //    template bawaannya ke workspace, jadi file yang tidak ditimpa tetap
+  //    berisi teks generik — dan AGENTS.md yang generik adalah karyawan yang
+  //    tidak tahu harus berbuat apa begitu sesinya dimulai.
   try {
-    const company = office.name;
-    await writeWorkspaceFile(
-      agentId,
-      "PROFILE.md",
-      buildProfile({ name, role, company, extra }),
-    );
-    await writeWorkspaceFile(agentId, "SOUL.md", buildSoul({ name, role, company }));
+    for (const file of BACKBONE_FILES) {
+      await writeWorkspaceFile(agentId, file, draft.files[file]);
+    }
   } catch (e) {
     await deleteAgent(agentId).catch(() => {
       /* pembersihan terbaik-usaha; kegagalannya tidak menutupi error asli */
@@ -129,5 +134,10 @@ export async function POST(req: Request) {
     );
   }
 
-  return NextResponse.json({ agentId, name, role: role.title, scheduleWarning });
+  return NextResponse.json({
+    agentId,
+    name: draft.name,
+    role: role.title,
+    scheduleWarning,
+  });
 }

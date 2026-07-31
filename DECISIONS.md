@@ -5,6 +5,102 @@ baru di atas.
 
 ---
 
+## 2026-07-31 · Iterasi 9 — karyawannya dibaca dulu, baru dibuat
+
+### Celah yang ditutup
+
+Sampai iterasi 7, "Rekrut" langsung membuat agent. Cepat — tapi yang dibeli
+orang di layar rekrut bukan kecepatan, melainkan karyawan yang perilakunya bisa
+dia percaya, dan perilaku itu baru bisa dilihat SETELAH agentnya hidup. Satu-
+satunya cara memperbaiki tebakan yang meleset adalah memecat lalu merekrut
+ulang, dan itu persis yang tidak akan dilakukan orang (lihat nama ganda `udin`
+dan `Rania` di instance produksi).
+
+Sekarang rekrut dua langkah: **usulan** — nama, deskripsi, dan isi ketiga file
+tulang punggung apa adanya, dilipat per file — baru **eksekusi**.
+
+Ini bukan kembalinya friction yang dibuang di iterasi 1. Form kosong menuntut
+orang mengarang jawaban; layar ini menyodorkan jawaban yang sudah jadi dan
+hanya minta dibaca. Yang satu menunda hasil, yang satu menunda penyesalan.
+
+### Bug yang ditemukan: satu dari tiga file selalu template
+
+`createAgent` menyalin template bawaan QwenPaw (`md_files/{lang}/`) ke workspace
+agent baru — SOUL.md, PROFILE.md, **dan AGENTS.md**. Alur rekrut lama hanya
+menimpa dua yang pertama, jadi tiap karyawan yang pernah direkrut lewat
+Clawmpany punya AGENTS.md generik. Itu file yang menjawab "dia harus berbuat apa
+begitu sesi dimulai" — yang paling mahal untuk dibiarkan generik. Sekarang
+ketiganya ditulis.
+
+Hal yang sama ternyata berlaku untuk **manajer gedungnya sendiri**: AGENTS.md
+agent `clawmpany` di paw.wheza.id masih 1.230 karakter template bawaan
+berbahasa Mandarin, belum pernah disentuh — sementara PROFILE.md dan SOUL.md-nya
+sudah ditulis tangan sejak iterasi 1. Sekarang ditulis (`concierge/manager.md`),
+dan sengaja TIDAK mengulang keduanya: peran dan gaya tinggal di sana, yang di
+AGENTS.md cuma cara kerja — urutan tiap sesi, apa yang boleh diputuskan sendiri,
+apa yang ditanyakan dulu, dan larangan menyebut data kantor penyewa lain.
+
+### Keputusan
+
+| Keputusan | Alasan |
+|---|---|
+| **Usulan dikirim utuh ke `/api/hire`, bukan `roleKey` yang disusun ulang di server** | Kalau server menyusun sendiri, yang disetujui dan yang ditulis bisa berbeda tanpa ada yang tahu — dan "sudah saya periksa" berhenti berarti apa-apa. |
+| **`readDraft()` dipakai browser DAN server** | Usulan dari chat dikarang model bahasa dan lewat browser sebagai teks biasa. Lolos di sana bukan jaminan; satu fungsi dipanggil dua kali lebih murah daripada dua validator yang bisa melenceng. |
+| **`lib/hire-draft.ts` bebas-server** | Katalog menyusun usulannya di browser tanpa satu pun request — jadi tidak ada kedipan "menyiapkan…" untuk data yang sudah ada di halaman. |
+| **Tiga file dilipat, bukan digelar** | Tiga file penuh sekaligus adalah dinding teks yang digulir lewati, dan konfirmasi yang digulir lewati sama saja dengan tidak ada konfirmasi. |
+| **Jadwal ikut ditampilkan walau tidak ada di JSON** | Diturunkan dari `roleKey`. Menyerahkan pilihan cron ke model berarti server harus memvalidasi ekspresi cron karangan; harganya tidak sepadan. |
+| **Usulan cacat ditampilkan, bukan disembunyikan** | Kartu yang diam-diam hilang membuat manajer gedung tampak mengabaikan permintaan. Menyebut apa yang salah membuat "coba lagi" jadi kalimat berikutnya yang wajar. |
+| **`"type"` wajib jadi kunci pertama** | Teksnya sampai token demi token. Penanda yang muncul belakangan berarti pemilik sempat melihat JSON setengah jadi sebelum kartunya. |
+
+### Kenapa lewat blok ```json, bukan tool-call
+
+Chat console QwenPaw hanya mengalirkan teks — tidak ada event tool-call (catatan
+yang sama sudah ada di `components/chat/thread.tsx` sejak awal). Jadi satu-
+satunya jalur data terstruktur dari manajer gedung ke aplikasi ini adalah satu
+blok ```json di dalam balasan biasa. Blok itu hanya muncul kalau agentnya tahu
+bentuknya: `concierge/manager.md` + `concierge/hiring-protocol.md`, dirakit dan
+dipasang oleh `npm run concierge:sync`.
+
+Katalog di halaman depan **tidak** bergantung pada sync itu — ia menyusun
+usulannya sendiri dengan perakit yang sama.
+
+**Bug di skripnya sendiri, ketemu saat sync kedua.** QwenPaw membuang baris
+kosong di ujung file saat menyimpan, jadi yang dikirim tidak pernah sama persis
+dengan yang dibaca kembali (6.147 → 6.146 karakter). Pemeriksaan "sudah
+mutakhir" karena itu tidak pernah kena, dan tiap `sync` berikutnya akan menulis
+ulang — sekaligus **menimpa `.previous-AGENTS.md` dengan salinan dirinya
+sendiri**, menghapus satu-satunya jejak isi asli. Diperbaiki dua lapis:
+perbandingan mengabaikan spasi ujung, dan cadangan hanya ditulis kalau isi yang
+akan ditimpa bukan keluaran skrip ini.
+
+### Diverifikasi di browser
+
+Route sementara merender keempat keadaan tanpa login: usulan sah (kartu +
+ketiga file terbuka berisi teks yang benar-benar akan ditulis), usulan dengan
+`roleKey` karangan (ditolak, alasannya disebut), blok yang masih mengalir
+(tertahan jadi "menyusun usulan karyawan"), dan katalog (pilih jabatan → kartu
+berisi AGENTS/PROFILE/SOUL hasil perakit, nama perusahaan ikut masuk). Tidak ada
+error console maupun server. Route probe sudah dihapus dan dipastikan 404;
+`/`, `/chat`, `/semua` tetap 200.
+
+### Diverifikasi dengan manajer gedung sungguhan
+
+Setelah sync, `/chat` ditanyai kasus nyata ("toko bahan bangunan, 4 orang,
+keluhan numpuk di WhatsApp"). Manajer gedung membalas dengan blok yang sah,
+aplikasi menukarnya jadi kartu — **Rina**, Customer Service, deskripsi yang
+menyebut WhatsApp — dan kalimat sesudah blok tetap tampil di bawah kartu.
+AGENTS.md yang dia tulis benar-benar tentang toko itu (memilah pesan yang bisa
+dijawab sendiri vs yang naik ke pemilik, mencatat komplain berikut nama barang
+dan tanggal), bukan template.
+
+Sync dijalankan dua kali: yang kedua berhenti di "sudah mutakhir", dan
+`.previous-AGENTS.md` masih berisi template Mandarin aslinya.
+
+**Belum diuji:** `POST /api/hire` sampai tuntas — itu membuat agent sungguhan di
+instance produksi dan menuntut sesi Clerk yang login.
+
+---
+
 ## 2026-07-31 · Iterasi 8 — chat yang menjelaskan dirinya sendiri
 
 ### Tiga keluhan, satu akar
