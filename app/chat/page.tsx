@@ -43,6 +43,12 @@ export default async function ChatPage() {
           userName={viewer}
           colleagues={colleagues}
           prime
+          // Tanpa `manageable`: manajer gedung milik gedung, bukan karyawan
+          // kantor ini — ia tidak pernah masuk roster, jadi semua rute
+          // manajemennya menjawab 404. Foto yang bisa diklik untuknya cuma
+          // jalan buntu yang terbaca sebagai kerusakan. Karyawan yang menerima
+          // alih di layar ini TETAP bisa diatur: mereka datang dari roster,
+          // dan `Thread` membedakan keduanya sendiri.
         />
       </div>
     </div>

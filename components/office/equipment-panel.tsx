@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 
 import { TermBlock, TermGutter } from "@/components/terminal/primitives";
 import type { UtilityOffer } from "@/lib/utilities";
@@ -37,13 +37,23 @@ export function EquipmentPanel({
   initialCatalog,
 }: {
   agentId: string;
-  initialInstalled: Installed[];
-  initialCatalog: UtilityOffer[];
+  /**
+   * Kosong (undefined) = panel memuat sendiri. Itu jalur dialog manajemen,
+   * yang dibuka dari chat dan karena itu tidak punya server component yang
+   * bisa memuat lebih dulu. Pemuatan sendiri di sini terasa (tiap peralatan
+   * yang menyala diuji koneksinya sungguhan), jadi barisnya diberi keterangan
+   * alih-alih dibiarkan kosong.
+   */
+  initialInstalled?: Installed[];
+  initialCatalog?: UtilityOffer[];
 }) {
-  // Data awal dari server component: satu waterfall lebih sedikit, dan panel
-  // sudah berisi sejak render pertama.
-  const [installed, setInstalled] = useState<Installed[]>(initialInstalled);
-  const [catalog, setCatalog] = useState<UtilityOffer[]>(initialCatalog);
+  // Bila ada, data awal dari server component: satu waterfall lebih sedikit,
+  // dan panel sudah berisi sejak render pertama.
+  const selfLoad = initialInstalled === undefined;
+
+  const [installed, setInstalled] = useState<Installed[]>(initialInstalled ?? []);
+  const [catalog, setCatalog] = useState<UtilityOffer[]>(initialCatalog ?? []);
+  const [loading, setLoading] = useState(selfLoad);
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [expanded, setExpanded] = useState<string | null>(null);
@@ -64,8 +74,20 @@ export function EquipmentPanel({
       setError(null);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Gagal memuat peralatan.");
+    } finally {
+      // Dimatikan di sini, bukan di effect: pemuatan pertama dan tiap muat
+      // ulang sesudah aksi lewat jalur yang sama, jadi keterangan "Membaca…"
+      // tidak punya cara untuk tertinggal menyala.
+      setLoading(false);
     }
   }, [base]);
+
+  useEffect(() => {
+    if (!selfLoad) return;
+    void (async () => {
+      await load();
+    })();
+  }, [selfLoad, load]);
 
   async function act(
     label: string,
@@ -92,7 +114,11 @@ export function EquipmentPanel({
     <TermBlock label={`Peralatan · ${installed.length}`} tone={installed.length ? "default" : "dim"}>
       {error ? <p className="text-term-warn mb-2 text-xs">{error}</p> : null}
 
-      {installed.length === 0 ? (
+      {loading ? (
+        <p className="text-term-dim text-xs">
+          Membaca peralatan dan menguji sambungannya…
+        </p>
+      ) : installed.length === 0 ? (
         <p className="text-term-dim mb-3 text-xs">
           Belum ada. Tanpa peralatan, dia hanya bisa menalar dari apa yang kamu
           ketik — tidak bisa menyentuh data sungguhan.

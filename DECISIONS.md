@@ -5,11 +5,11 @@ baru di atas.
 
 ---
 
-## 2026-07-31 · Iterasi 9 — pembicaraan berpindah karyawan, konteksnya ikut
+## 2026-07-31 · Iterasi 10 — pembicaraan berpindah karyawan, konteksnya ikut
 
 ### Celah yang ditutup
 
-Sampai iterasi 8, bicara dengan karyawan tertentu berarti tahu lebih dulu siapa
+Sampai iterasi 9, bicara dengan karyawan tertentu berarti tahu lebih dulu siapa
 yang mengurus apa, lalu membuka halamannya. Itu membalik beban: pemilik yang
 harus memetakan kantornya sendiri sebelum boleh bertanya. Akibatnya pertanyaan
 berhenti di kepala — bentuk friction yang sama dengan halaman kosong, cuma
@@ -43,7 +43,8 @@ percakapan BERPINDAH ke orang itu, dan dia yang menjawab di giliran yang sama.
 | **Satu sesi QwenPaw PER KARYAWAN, bukan satu sesi bersama** | Kalau semua berbagi satu id sesi, tiap karyawan membaca percakapan yang ditulis orang lain sebagai riwayatnya sendiri. |
 | **Maksimal 2 alih per satu giliran pemilik** | Dua karyawan yang sama-sama merasa "ini bukan bidang saya" akan saling melempar sampai kuota habis, dan yang menonton cuma melihat layar berjalan sendiri. |
 | **Balasan yang isinya cuma penanda dibuang dari transkrip** | Blok `alih` sudah mengatakan semuanya; gelembung kosong di atasnya cuma menambah baris. |
-| **Blok `alih` bernama `lokal`, sama seperti slash command** | Ia dihitung di browser, bukan diucapkan agent mana pun — aturan penamaan iterasi 8 berlaku apa adanya. |
+| **Blok `alih` bernama `lokal` dan tanpa foto, sama seperti slash command** | Ia dihitung di browser, bukan diucapkan agent mana pun — aturan penamaan iterasi 8 dan aturan foto iterasi 9 berlaku apa adanya. |
+| **Bisa-diatur ditentukan per PEMBICARA, bukan per layar** | Setelah alih, satu transkrip berisi manajer gedung (yang tidak pernah masuk roster, jadi rute manajemennya 404) dan karyawan roster (yang bisa diatur). Satu boolean untuk seluruh layar akan salah untuk salah satunya. |
 | **Baris "kamu bicara dengan siapa" pindah dari halaman ke dalam `Thread`** | Begitu lawan bicaranya bisa berganti, judul statis di halaman jadi bohong. |
 | **`/ke <nama>` memotong satu giliran model** | Kalau pemilik sudah menyebut tujuannya lewat perintah, membakar satu panggilan model cuma untuk memutuskan hal yang sudah diputuskan itu menunggu tanpa guna. |
 | **Penanda `isRunning` dipegang rantai, bukan tiap giliran** | Kalau tiap giliran mematikannya sendiri, tombol send berkedip kembali di sela dua karyawan — dan sempat menerima pesan yang akan salah alamat. |
@@ -63,7 +64,10 @@ dikembalikan ke `[]`.
   pertanyaan yang tadi diajukan ke Sirksa tanpa pemilik mengetiknya ulang:
   *"Tunggu — ini urusan saya, bukan Sirksa… Cara rekrut di sini: kamu tidak
   perlu mengisi apa-apa."* Itu bukti berkas pengalihan sampai utuh.
-- Tidak ada error di console. `next build` dan `eslint` hijau.
+- **"saya mau tanya archylabs soal standar floorplan"** (diuji ulang setelah
+  digabung dengan `prime`) → Archylabs memperkenalkan diri satu kalimat lalu
+  langsung menjawab pertanyaannya.
+- `next build` dan `eslint` hijau.
 
 Protokolnya juga diuji langsung ke `paw.wheza.id` dengan aturan yang persis
 dihasilkan `handoffRules()`: model menaruh penanda di baris pertama dan menutup
@@ -75,6 +79,63 @@ dengan satu kalimat pamit, sesuai instruksi.
   `probe-alih-a1` (agent `clawmpany`) dan `probe-alih-b1` (agent `tukang`).
 - Alih baru aktif di `/chat`. Halaman `/agent/[id]` sengaja tetap satu karyawan
   — itu drill-down ke pekerjaan SATU orang, bukan meja depan.
+
+---
+
+## 2026-07-31 · Iterasi 9 — karyawan diatur dari tempat kamu menyadarinya
+
+### Celah yang ditutup
+
+Manajemen karyawan sudah lengkap sejak iterasi 4, tapi seluruhnya hidup di
+`/agent/[id]`. Padahal saat yang membuat orang ingin mengubah sesuatu justru
+saat membaca jawaban: "nadanya terlalu kaku", "dia harusnya bisa buka
+WhatsApp". Menyuruh mereka meninggalkan percakapan untuk memperbaikinya berarti
+kehilangan konteks yang memicu perbaikan itu — dan bersamanya, perbaikannya.
+
+Sekarang tiap balasan membawa nama + foto karyawannya, dan fotonya adalah pintu
+ke dialog manajemen: identitas, keahlian, peralatan, jadwal. Ditiru dari
+ClawCity `src/agents/setup-dialog.ts` + `schedule-dialog.ts`, digabung jadi satu
+pintu.
+
+### Keputusan
+
+| Keputusan | Alasan |
+|---|---|
+| **Tab memetakan ke panel yang SUDAH ada, bukan ditulis ulang** | `SchedulePanel`/`EquipmentPanel` cukup diberi kemampuan memuat sendiri saat data awal tidak diberikan. Satu penyunting per hal, dua tempat memasangnya — kalau ditulis ulang, dua tempat itu akan berbeda perilaku dalam sebulan. |
+| **Dialog dipasang ulang tiap dibuka; tab memuat saat dipilih** | Dialog manajemen yang menampilkan keadaan basi lebih berbahaya daripada satu request tambahan — orang membukanya justru untuk memastikan perubahannya mendarat. Tab yang tak pernah dibuka tidak minta apa-apa; penting karena tab peralatan menguji koneksi tiap alat yang menyala. |
+| **Foto profil = kotak berisi inisial** | QwenPaw tidak menyimpan gambar untuk agent dan app ini tidak punya database kedua (rosternya saja menumpang di metadata Clerk). Placeholder yang menunggu fitur unggah yang belum ada lebih buruk daripada wajah yang jujur — dan inisial justru konsisten dengan antarmuka yang seluruhnya monospace. |
+| **Manajer gedung dapat nama + foto, tapi TIDAK bisa diklik** | Ia sengaja tidak pernah masuk roster mana pun, jadi semua rute manajemennya menjawab 404. Foto yang bisa diklik di sana cuma jalan buntu yang terbaca sebagai kerusakan. |
+| **Blok perintah (`/help`, `/dark`) tidak diberi nama karyawan** | Itu keluaran shell yang jalan di browser, bukan ucapan si karyawan. Memberinya wajah membuat dia seolah mengaku melakukan hal yang tidak pernah sampai kepadanya. |
+| **Tidak ada kolom "deskripsi" tersendiri** | `description` milik agent di QwenPaw adalah hasil BACAAN berkas persona, bukan field yang bisa ditulis (`PUT /api/agents/{id}` hanya menerima nama). Kolomnya akan menjanjikan sesuatu yang tak pernah tersimpan; yang benar-benar mengubahnya adalah PROFILE.md. |
+
+### Bug yang ditemukan dan diperbaiki
+
+- **Dialog tidak bisa dibuka ulang setelah ditutup.** Event `close` bawaan
+  `<dialog>` tidak sampai ke React di sini — baik lewat prop `onClose` maupun
+  `addEventListener`. Akibatnya state pemanggil tidak pernah kembali `false`:
+  elemennya tersembunyi tapi tetap terpasang, dan mengklik foto lagi tidak
+  membuka apa-apa sampai halaman dimuat ulang. Sekarang ✕ / latar / Esc
+  semuanya memanggil `onClose` lewat handler React biasa, dan Esc di-`preventDefault`
+  supaya perilaku bawaan tidak menyelinap masuk lagi.
+- **Kegagalan memuat identitas bocor ke semua tab**, menempel di atas panel yang
+  memuat sendiri dengan baik dan menabrak label bingkainya. Sekarang hanya
+  tampil di tabnya sendiri.
+- **Header menampilkan "memuat…" selamanya** untuk karyawan yang gagal dibaca.
+
+### Diverifikasi
+
+- **Keahlian (baru) diuji end-to-end di paw.wheza.id** pada agent sekali-pakai
+  yang dibuat dan dihapus lagi: create → list → disable → enable → ganti nama
+  lewat `source_name` → delete, semuanya 200, emoji + deskripsi terbaca benar.
+  Payload-nya dirakit dengan Node memakai fungsi yang sama seperti produksi —
+  bukan tiruan. Percobaan pertama memakai Python gagal 400: `json.dumps`
+  meng-escape emoji jadi pasangan surrogate `📊`, dan YAML menolaknya
+  sebagai escape Unicode tidak sah. `JSON.stringify` di JS menulis emojinya apa
+  adanya — itulah yang diterima, dan itulah sebabnya uji harus memakai runtime
+  yang sama dengan produksinya.
+- **Dialog dijalankan di browser**: buka → tutup (✕ / Esc / latar) → buka lagi,
+  ketiganya benar; pergantian tab, tema terang & gelap, dan jalur 404 (agent di
+  luar roster) menampilkan kalimat yang jujur, bukan panel kosong.
 
 ---
 

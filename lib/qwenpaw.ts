@@ -19,6 +19,8 @@
 //   GET    /api/agents/{id}/chats/{chatId}   → {messages:[…]}
 //   GET    /api/agents/{id}/cron/jobs        → ARRAY job  (BUKAN {jobs:[…]})
 //   GET    /api/mcp                          → ARRAY server MCP
+//   GET    /api/skills                       (header X-Agent-Id) → ARRAY skill
+//   PUT    /api/skills/save      {name,content,overwrite,source_name?}
 // ────────────────────────────────────────────────────────────────
 import "server-only";
 
@@ -611,6 +613,154 @@ export async function probeMcpTools(
       message: e instanceof Error ? e.message : "Tidak bisa menghubungi server peralatan.",
     };
   }
+}
+
+// ── Keahlian (skills) ───────────────────────────────────────────
+//
+// Satu keahlian = satu SKILL.md di workspace karyawan: sepotong prosedur yang
+// dia panggil SENDIRI ketika situasinya cocok. Bedanya dengan PROFILE.md —
+// PROFILE.md selalu terbaca, keahlian hanya dipakai bila deskripsinya cocok
+// dengan yang sedang dikerjakan. Karena itu deskripsi adalah PEMICU keahlian,
+// bukan hiasan: "Dipakai saat menyusun laporan penjualan bulanan" bekerja,
+// "Laporan" tidak.
+//
+// Terverifikasi 2026-07-31 dengan curl ke paw.wheza.id: sama seperti MCP,
+// keahlian bersifat per-agent lewat header X-Agent-Id — bukan global se-instance.
+//
+//   GET    /api/skills                    → ARRAY skill
+//   POST   /api/skills                    {name, content, enable, config}
+//   PUT    /api/skills/save               {name, content, overwrite, source_name?}
+//   POST   /api/skills/{name}/enable|disable
+//   DELETE /api/skills/{name}
+
+export interface Skill {
+  name: string;
+  description: string;
+  emoji: string;
+  enabled: boolean;
+  /** Isi SKILL.md apa adanya — LENGKAP dengan frontmatter-nya. */
+  content: string;
+  lastUpdated: string | null;
+}
+
+export async function listSkills(agentId: string): Promise<Skill[]> {
+  const raw = await get<unknown>("/api/skills", { agentId, soft404: true });
+  return asArray<Record<string, unknown>>(raw, "skills")
+    .map((s) => ({
+      name: typeof s.name === "string" ? s.name : "",
+      description: typeof s.description === "string" ? s.description : "",
+      emoji: typeof s.emoji === "string" ? s.emoji : "",
+      enabled: s.enabled === true,
+      content: typeof s.content === "string" ? s.content : "",
+      lastUpdated: typeof s.last_updated === "string" ? s.last_updated : null,
+    }))
+    .filter((s) => s.name.length > 0);
+}
+
+const FRONTMATTER_RE = /^---\s*\r?\n[\s\S]*?\r?\n---\s*\r?\n?/;
+
+/**
+ * Isi SKILL.md tanpa frontmatter — inilah yang disunting orang.
+ *
+ * Frontmatter tidak pernah ditampilkan di penyunting karena `name` dan
+ * `description` di dalamnya sudah punya kolomnya sendiri; membiarkannya
+ * terlihat mengundang orang mengubahnya di dua tempat sekaligus.
+ */
+export function skillBody(content: string): string {
+  return content.replace(FRONTMATTER_RE, "");
+}
+
+/**
+ * Rakit SKILL.md yang sah.
+ *
+ * Frontmatter DITULIS ULANG dari kolom form, tidak pernah dipertahankan dari
+ * teks yang diketik: `name` + `description` adalah yang dibaca QwenPaw untuk
+ * memutuskan kapan keahlian ini dipanggil, jadi keduanya tidak boleh punya dua
+ * versi yang bisa berbeda isi.
+ */
+function skillContent(input: {
+  name: string;
+  description: string;
+  body: string;
+  emoji?: string;
+}): string {
+  const description = input.description.trim() || `Keahlian ${input.name}`;
+  const emoji = input.emoji?.trim();
+  const meta = emoji
+    ? `metadata:\n  qwenpaw:\n    emoji: ${JSON.stringify(emoji)}\n`
+    : "";
+  const body = skillBody(input.body).replace(/^\s+/, "");
+  return `---\nname: ${input.name}\ndescription: ${JSON.stringify(description)}\n${meta}---\n\n${body}\n`;
+}
+
+export interface SkillInput {
+  name: string;
+  description: string;
+  body: string;
+  emoji?: string;
+}
+
+export async function createSkill(
+  agentId: string,
+  input: SkillInput & { enabled?: boolean },
+): Promise<void> {
+  await send(
+    "POST",
+    "/api/skills",
+    {
+      name: input.name,
+      content: skillContent(input),
+      enable: input.enabled !== false,
+      config: {},
+    },
+    agentId,
+  );
+}
+
+/**
+ * Simpan keahlian yang sudah ada. `sourceName` adalah nama LAMA-nya: kalau
+ * berbeda dari `input.name`, QwenPaw memperlakukannya sebagai ganti nama alih-
+ * alih membuat file kedua yang isinya sama.
+ */
+export async function saveSkill(
+  agentId: string,
+  input: SkillInput & { sourceName: string },
+): Promise<void> {
+  await send(
+    "PUT",
+    "/api/skills/save",
+    {
+      name: input.name,
+      content: skillContent(input),
+      overwrite: true,
+      ...(input.sourceName && input.sourceName !== input.name
+        ? { source_name: input.sourceName }
+        : {}),
+    },
+    agentId,
+  );
+}
+
+/**
+ * Nyalakan / matikan. Tidak seperti `PATCH /api/mcp/toggle` yang MEMBALIK nilai,
+ * di sini endpoint-nya menyatakan tujuan — jadi UI yang state-nya basi tetap
+ * mendarat pada nilai yang diklik, bukan kebalikannya.
+ */
+export async function setSkillEnabled(
+  agentId: string,
+  name: string,
+  enabled: boolean,
+): Promise<void> {
+  await send(
+    "POST",
+    `/api/skills/${encodeURIComponent(name)}/${enabled ? "enable" : "disable"}`,
+    undefined,
+    agentId,
+  );
+}
+
+export async function deleteSkill(agentId: string, name: string): Promise<void> {
+  await send("DELETE", `/api/skills/${encodeURIComponent(name)}`, undefined, agentId);
 }
 
 /** Apakah instance-nya terkonfigurasi sama sekali. */

@@ -16,6 +16,8 @@ import { chatStream, newId, newSessionId, type PawPhase } from "@/lib/paw";
 import { cn } from "@/lib/utils";
 import { APP_VERSION } from "@/lib/version";
 import { MarkdownText } from "@/components/markdown-text";
+import { AgentAvatar } from "@/components/office/agent-avatar";
+import { AgentDialog } from "@/components/office/agent-dialog";
 import { Elapsed, Spinner } from "@/components/terminal/spinner";
 import {
   TermBlock,
@@ -112,6 +114,18 @@ export interface ThreadProps {
   agentName?: string;
   /** Nama panggilan penggunanya, SATU KATA (lihat lib/office.ts viewerName). */
   userName?: string;
+  /**
+   * Karyawan kantor ini, jadi nama + fotonya membuka dialog manajemen.
+   *
+   * Manajer gedung TIDAK termasuk: ia sengaja tidak pernah masuk roster mana
+   * pun (lihat lib/qwenpaw.ts), jadi semua rute manajemennya menjawab 404 —
+   * nama yang bisa diklik di sana cuma jalan buntu yang tampak seperti
+   * kerusakan.
+   *
+   * Diabaikan bila `colleagues` diisi: di layar yang bisa berpindah orang,
+   * `canManage` membedakannya per pembicara, bukan per layar.
+   */
+  manageable?: boolean;
   /** Kalimat pembuka saat transkrip masih kosong. Diabaikan bila `prime`. */
   greeting?: string;
   /**
@@ -133,6 +147,7 @@ export const Thread: FC<ThreadProps> = ({
   agentId,
   agentName,
   userName = "kamu",
+  manageable = false,
   greeting,
   prime = false,
   colleagues,
@@ -140,6 +155,8 @@ export const Thread: FC<ThreadProps> = ({
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState("");
   const [isRunning, setIsRunning] = useState(false);
+  /** Karyawan yang dialog pengaturannya sedang terbuka. */
+  const [managing, setManaging] = useState<Colleague | null>(null);
 
   const roster = colleagues ?? [];
   const canSwitch = roster.length > 1;
@@ -177,6 +194,18 @@ export const Thread: FC<ThreadProps> = ({
       name: agentName || id || "agent",
       title: "karyawan",
     };
+
+  /**
+   * Boleh diatur dari sini atau tidak.
+   *
+   * Manajer gedung tidak pernah masuk roster mana pun, jadi semua rute
+   * manajemennya menjawab 404 — foto yang bisa diklik untuknya cuma jalan buntu
+   * yang terbaca sebagai kerusakan. Di layar yang bisa berpindah orang, dialah
+   * yang membuka percakapan; semua nama LAIN di sana datang dari roster kantor
+   * dan memang bisa diatur.
+   */
+  const canManage = (id?: string): boolean =>
+    Boolean(id) && (canSwitch ? id !== opening : manageable);
 
   const nearBottom = useCallback(() => {
     const el = scrollerRef.current;
@@ -607,6 +636,11 @@ export const Thread: FC<ThreadProps> = ({
                     m.speaker ? nameOf(m.speaker).name : agentName || agentId || "agent"
                   }
                   agentId={m.speaker ?? agentId}
+                  onManage={
+                    canManage(m.speaker ?? agentId)
+                      ? () => setManaging(nameOf((m.speaker ?? agentId)!))
+                      : undefined
+                  }
                 />
               ),
             )}
@@ -629,6 +663,18 @@ export const Thread: FC<ThreadProps> = ({
           </div>
         </div>
       </div>
+
+      {/* Dipasang hanya saat terbuka — jadi tiap kali dibuka, isinya dimuat
+          ulang dari nol. Dialog manajemen yang menampilkan keadaan basi lebih
+          berbahaya daripada satu request tambahan: orang membukanya justru
+          untuk memastikan perubahannya benar-benar mendarat. */}
+      {managing ? (
+        <AgentDialog
+          agentId={managing.id}
+          agentName={managing.name}
+          onClose={() => setManaging(null)}
+        />
+      ) : null}
     </div>
   );
 };
@@ -679,17 +725,53 @@ const MessageHeader: FC<{
   /** id agent, kalau berbeda dari namanya. */
   sub?: string;
   tone?: "prompt" | "dim";
+  /**
+   * Bila diisi, foto + nama jadi TOMBOL pembuka dialog manajemen — satu-satunya
+   * jalan ke sana dari percakapan.
+   */
+  onManage?: () => void;
   children?: React.ReactNode;
-}> = ({ marker, name, sub, tone = "prompt", children }) => {
+}> = ({ marker, name, sub, tone = "prompt", onManage, children }) => {
   const ink = tone === "dim" ? "text-term-dim" : "text-term-prompt";
+  const label = (
+    <span className={cn("text-[11px] leading-5 font-medium tracking-wide", ink)}>
+      {name}
+    </span>
+  );
   return (
     // Tanpa `gap` di sumbu-x: jarak diatur per elemen, supaya nama benar-benar
     // menempel di tepi kanan kolom gutter dan sejajar dengan badan pesannya.
     <div className="flex flex-wrap items-baseline gap-y-0.5">
       <TermGutter marker={marker} className={cn("text-sm leading-5", ink)} />
-      <span className={cn("text-[11px] leading-5 font-medium tracking-wide", ink)}>
-        {name}
-      </span>
+      {onManage ? (
+        // Fotonya SENGAJA tidak menggantikan penanda di gutter: lebar kolom itu
+        // yang menjaga nama dan badan pesan berdiri di kolom yang sama, dan
+        // kotak 16px di sana akan menggesernya.
+        //
+        // Isyarat "atur" muncul saat disorot, bukan permanen: baris ini
+        // terulang di SETIAP balasan, jadi ajakan yang selalu terlihat menumpuk
+        // jadi kebisingan di transkrip yang panjang.
+        <button
+          type="button"
+          onClick={onManage}
+          title={`Atur ${name}`}
+          className="group focus-visible:ring-ring flex cursor-pointer items-baseline focus-visible:ring-1 focus-visible:outline-none"
+        >
+          <AgentAvatar
+            name={name}
+            className="mr-1.5 size-4 self-center text-[9px] group-hover:border-term-prompt group-focus-visible:border-term-prompt"
+          />
+          {label}
+          <span
+            aria-hidden="true"
+            className="text-term-dim ml-2 text-[10px] leading-5 opacity-0 transition-opacity group-hover:opacity-100 group-focus-visible:opacity-100"
+          >
+            atur ▸
+          </span>
+        </button>
+      ) : (
+        label
+      )}
       {sub && sub !== name ? (
         <span className="text-term-dim ml-2 text-[10px] leading-5">{sub}</span>
       ) : null}
@@ -711,7 +793,9 @@ const AssistantMessage: FC<{
   message: ChatMessage;
   name: string;
   agentId?: string;
-}> = ({ message, name, agentId }) => {
+  /** Kosong = karyawan ini tidak bisa diatur dari sini (lihat ThreadProps). */
+  onManage?: () => void;
+}> = ({ message, name, agentId, onManage }) => {
   // Selagi menalar dan belum satu kata pun ditulis, cuplikan pikirannya JAUH
   // lebih menjelaskan daripada tombol "thinking" yang tertutup. Begitu jawaban
   // mulai mengalir, cuplikan itu berhenti berguna dan tombolnya kembali.
@@ -722,10 +806,11 @@ const AssistantMessage: FC<{
       {message.block ? (
         // Balasan slash command dan catatan alih tidak datang dari agent mana
         // pun — keduanya dihitung di browser ini. Menamainya dengan nama agent
-        // adalah kebohongan kecil yang merusak arti semua nama lain.
+        // adalah kebohongan kecil yang merusak arti semua nama lain, dan karena
+        // itu keduanya juga tidak membawa foto yang membuka pengaturannya.
         <MessageHeader marker="▸" name="lokal" tone="dim" />
       ) : (
-        <MessageHeader marker="■" name={name} sub={agentId}>
+        <MessageHeader marker="■" name={name} sub={agentId} onManage={onManage}>
           {message.streaming ? (
             <StreamStatus phase={message.phase} startedAt={message.startedAt} />
           ) : null}
