@@ -1,7 +1,6 @@
-import { OfficeHeader } from "@/components/office/header";
 import { Thread } from "@/components/chat/thread";
 import { officeDirectory } from "@/lib/directory";
-import { authEnabled, currentOffice, viewerName } from "@/lib/office";
+import { currentOffice, viewerName } from "@/lib/office";
 import { CONCIERGE_AGENT_ID } from "@/lib/qwenpaw";
 
 export const dynamic = "force-dynamic";
@@ -33,24 +32,26 @@ export default async function ChatPage() {
     officeDirectory(office).catch(() => []),
   ]);
 
+  // Tanpa judul halaman sendiri: rel navigasi sudah menyorot "manajer gedung",
+  // dan kalimat pembuka dari agent-nya sendiri sudah menjelaskan apa yang bisa
+  // ditanyakan. Dua penjelasan untuk satu layar cuma memakan tinggi yang
+  // seharusnya jadi percakapan.
   return (
-    <div className="flex h-svh flex-col">
-      <OfficeHeader authOn={authEnabled()} />
-      <div className="min-h-0 flex-1">
-        <Thread
-          agentId={CONCIERGE_AGENT_ID}
-          agentName="clawmpany"
-          userName={viewer}
-          colleagues={colleagues}
-          prime
-          // Tanpa `manageable`: manajer gedung milik gedung, bukan karyawan
-          // kantor ini — ia tidak pernah masuk roster, jadi semua rute
-          // manajemennya menjawab 404. Foto yang bisa diklik untuknya cuma
-          // jalan buntu yang terbaca sebagai kerusakan. Karyawan yang menerima
-          // alih di layar ini TETAP bisa diatur: mereka datang dari roster,
-          // dan `Thread` membedakan keduanya sendiri.
-        />
-      </div>
+    <div className="flex h-full flex-col">
+      <Thread
+        agentId={CONCIERGE_AGENT_ID}
+        agentName="clawmpany"
+        userName={viewer}
+        colleagues={colleagues}
+        prime
+        // Tanpa `manageable`: manajer gedung milik gedung, bukan karyawan
+        // kantor ini — ia tidak pernah masuk roster, jadi semua rute
+        // manajemennya menjawab 404. Foto yang bisa diklik untuknya cuma
+        // jalan buntu yang terbaca sebagai kerusakan. Karyawan yang menerima
+        // alih di layar ini TETAP bisa diatur: mereka datang dari roster,
+        // dan `Thread` membedakan keduanya sendiri.
+      />
+
     </div>
   );
 }

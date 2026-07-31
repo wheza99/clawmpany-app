@@ -1,6 +1,5 @@
 import Link from "next/link";
 
-import { OfficeHeader } from "@/components/office/header";
 import { SwitchOffice } from "@/components/office/switch-office";
 import { TermBlock, TermGutter } from "@/components/terminal/primitives";
 import { allOffices, authEnabled, currentOffice } from "@/lib/office";
@@ -23,7 +22,7 @@ export default async function AllOfficesPage() {
 
   if (!authOn || !active.userId) {
     return (
-      <Shell authOn={authOn}>
+      <Shell>
         <h1 className="text-lg">Semua perusahaan</h1>
         <p className="text-term-dim mt-1 text-sm">Masuk dulu untuk melihat kantormu.</p>
       </Shell>
@@ -47,7 +46,7 @@ export default async function AllOfficesPage() {
   );
 
   return (
-    <Shell authOn={authOn}>
+    <Shell>
       <div className="flex flex-wrap items-baseline justify-between gap-2">
         <h1 className="text-lg">Semua perusahaan</h1>
         <span className="text-term-dim text-[11px]">
@@ -58,8 +57,8 @@ export default async function AllOfficesPage() {
       {offices.length === 0 ? (
         <TermBlock label="Belum ada perusahaan">
           <p className="text-sm">
-            Buat organisasi lewat pemilih di kanan atas — satu organisasi = satu
-            perusahaan = satu kantor.
+            Buat organisasi lewat pemilih perusahaan di rel navigasi — satu
+            organisasi = satu perusahaan = satu kantor.
           </p>
           <p className="text-term-dim mt-1.5 text-xs">
             Punya lima usaha? Buat lima, masing-masing dengan karyawannya sendiri.
@@ -179,10 +178,9 @@ function score(b: OfficeBrief): number {
   );
 }
 
-function Shell({ authOn, children }: { authOn: boolean; children: React.ReactNode }) {
+function Shell({ children }: { children: React.ReactNode }) {
   return (
-    <div className="flex min-h-svh flex-col">
-      <OfficeHeader authOn={authOn} />
+    <div className="flex min-h-full flex-col">
       <main className="mx-auto w-full max-w-5xl flex-1 space-y-6 px-4 py-6">{children}</main>
       <footer className="border-border mt-auto border-t">
         <div className="text-term-dim mx-auto flex w-full max-w-5xl items-center px-4 py-3 text-[11px]">

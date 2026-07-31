@@ -1,6 +1,5 @@
 import Link from "next/link";
 
-import { OfficeHeader } from "@/components/office/header";
 import { HireCatalog } from "@/components/office/hire-catalog";
 import { ReportView } from "@/components/office/report-view";
 import { TermBlock, TermGutter } from "@/components/terminal/primitives";
@@ -18,8 +17,7 @@ export default async function Home() {
   const signedIn = Boolean(office.userId);
 
   return (
-    <div className="flex min-h-svh flex-col">
-      <OfficeHeader authOn={authOn} />
+    <div className="flex min-h-full flex-col">
       <main className="mx-auto w-full max-w-5xl flex-1 px-4 py-6">
         {!authOn ? (
           <SetupNeeded />
@@ -42,7 +40,7 @@ async function Occupied({ office }: { office: Office }) {
   return (
     <div className="space-y-6">
       <ReportView report={report} />
-      <HireCatalog roles={ROLE_CATALOG} compact />
+      <HireCatalog roles={ROLE_CATALOG} company={office.name} compact />
     </div>
   );
 }
@@ -76,7 +74,7 @@ function EmptyOffice({ officeName }: { officeName: string }) {
         </ul>
       </TermBlock>
 
-      <HireCatalog roles={ROLE_CATALOG} />
+      <HireCatalog roles={ROLE_CATALOG} company={officeName} />
     </div>
   );
 }
@@ -110,7 +108,8 @@ function SignedOut() {
       </TermBlock>
 
       <p className="text-term-dim text-xs">
-        Masuk lewat tombol di kanan atas untuk membuka kantormu.
+        Tekan <span className="text-term-prompt">Masuk</span> di rel navigasi —
+        kiri layar di komputer, bawah layar di ponsel — untuk membuka kantormu.
       </p>
     </div>
   );

@@ -6,7 +6,8 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "concierge:sync": "node --env-file-if-exists=.env.local scripts/sync-concierge.mjs"
   },
   "dependencies": {
     "@clerk/nextjs": "^7.6.3",

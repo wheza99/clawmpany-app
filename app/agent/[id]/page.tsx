@@ -6,9 +6,8 @@ import { EquipmentPanel } from "@/components/office/equipment-panel";
 import { IdentityPanel } from "@/components/office/identity-panel";
 import { SchedulePanel } from "@/components/office/schedule-panel";
 import { SkillsPanel } from "@/components/office/skills-panel";
-import { OfficeHeader } from "@/components/office/header";
 import { TermBlock, TermGutter } from "@/components/terminal/primitives";
-import { authEnabled, currentOffice, viewerName } from "@/lib/office";
+import { currentOffice, viewerName } from "@/lib/office";
 import { offers } from "@/lib/utilities";
 import {
   listAgents,
@@ -112,8 +111,7 @@ export default async function AgentPage({
   );
 
   return (
-    <div className="flex min-h-svh flex-col">
-      <OfficeHeader authOn={authEnabled()} />
+    <div className="flex min-h-full flex-col">
       <main className="mx-auto w-full max-w-5xl flex-1 space-y-6 px-4 py-6">
         <div>
           <Link href="/" className="text-term-dim hover:text-term-prompt text-[11px]">
