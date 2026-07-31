@@ -3,10 +3,12 @@
 import { useCallback, useEffect, useRef, useState, type FC } from "react";
 import { useTheme } from "next-themes";
 
+import { scanForHireDraft } from "@/lib/hire-draft";
 import { chatStream, newId, newSessionId } from "@/lib/paw";
 import { cn } from "@/lib/utils";
 import { APP_VERSION } from "@/lib/version";
 import { MarkdownText } from "@/components/markdown-text";
+import { HireDraftCard } from "@/components/office/hire-draft-card";
 import {
   TermBlock,
   TermGutter,
@@ -32,6 +34,12 @@ import {
  * in `handleCommand`: the command is echoed into the transcript the way a shell
  * echoes input, and its result lands as a terminal block below it, keeping the
  * "everything happens in the conversation" feel without any sidebar or menu.
+ *
+ * That same missing tool-call channel is why merekrut lewat chat lewat SATU
+ * BLOK ```json di dalam balasan biasa (lib/hire-draft.ts). Manajer gedung
+ * menulis usulannya sebagai teks; `AssistantMessage` memungutnya dan menukarnya
+ * dengan kartu konfirmasi. Kalau pemungutnya gagal, yang tersisa adalah blok
+ * kode yang terbaca manusia — bukan bubble kosong.
  */
 
 interface CommandBlock {
@@ -332,7 +340,7 @@ const AssistantMessage: FC<{ message: ChatMessage }> = ({ message }) => (
           </TermBlock>
         </div>
       ) : message.text ? (
-        <MarkdownText content={message.text} />
+        <AssistantBody text={message.text} />
       ) : message.streaming ? (
         <span className="text-term-prompt text-sm" aria-label="Working">
           <span className="animate-pulse">█</span>
@@ -341,6 +349,49 @@ const AssistantMessage: FC<{ message: ChatMessage }> = ({ message }) => (
     </div>
   </div>
 );
+
+/**
+ * Isi satu balasan: markdown biasa, kecuali kalau di dalamnya ada usulan
+ * rekrut — yang ditukar dengan kartu konfirmasi, tetap di tempatnya semula
+ * supaya kalimat sebelum dan sesudahnya masih membingkainya.
+ */
+const AssistantBody: FC<{ text: string }> = ({ text }) => {
+  const scan = scanForHireDraft(text);
+
+  if (scan.state === "none") return <MarkdownText content={text} />;
+
+  if (scan.state === "pending") {
+    return (
+      <>
+        {scan.before.trim() ? <MarkdownText content={scan.before} /> : null}
+        <p className="text-term-dim term-caret my-2 text-xs">menyusun usulan karyawan</p>
+      </>
+    );
+  }
+
+  return (
+    <>
+      {scan.before.trim() ? <MarkdownText content={scan.before} /> : null}
+      {scan.state === "ready" ? (
+        <HireDraftCard draft={scan.draft} />
+      ) : (
+        // Usulan yang cacat TIDAK disembunyikan. Kartu yang diam-diam hilang
+        // membuat manajer gedung tampak mengabaikan permintaan; menyebut apa
+        // yang salah membuat "coba lagi" jadi kalimat berikutnya yang wajar.
+        <div className="my-2">
+          <TermBlock label="Usulan tidak terbaca" tone="warn">
+            <p className="text-xs leading-relaxed">{scan.reason}</p>
+            <p className="text-term-dim mt-1.5 text-[11px]">
+              Minta manajer gedung menyusun ulang usulannya, atau rekrut dari
+              katalog di halaman depan.
+            </p>
+          </TermBlock>
+        </div>
+      )}
+      {scan.after.trim() ? <MarkdownText content={scan.after} /> : null}
+    </>
+  );
+};
 
 /** A labelled terminal block rendered as a tool-style reply (theme, help…). */
 const CommandBlockView: FC<{ block: CommandBlock }> = ({ block }) => (

@@ -9,8 +9,9 @@
 // "saya butuh bantuan". Yang tidak pernah diisi, tidak pernah bekerja.
 //
 // Maka rekrut di sini TIDAK menghasilkan cangkang. Memilih jabatan langsung
-// menulis PROFILE.md + SOUL.md agent itu, jadi satu klik menghasilkan karyawan
-// yang sudah tahu dirinya siapa dan apa yang dikerjakan.
+// menulis KETIGA file tulang punggung agent itu — AGENTS.md, SOUL.md,
+// PROFILE.md — jadi satu konfirmasi menghasilkan karyawan yang sudah tahu
+// dirinya siapa dan apa yang dikerjakan.
 // ────────────────────────────────────────────────────────────────
 
 export interface RoleTemplate {
@@ -27,6 +28,11 @@ export interface RoleTemplate {
   suggestedSchedule?: { cron: string; label: string; prompt: string };
 }
 
+/**
+ * Menambah/menghapus jabatan di sini? Daftar `roleKey` yang sah juga ditulis di
+ * `concierge/hiring-protocol.md` — manajer gedung memilih dari daftar itu, dan
+ * usulan dengan kunci di luar katalog ditolak `readDraft()`.
+ */
 export const ROLE_CATALOG: RoleTemplate[] = [
   {
     key: "chief-of-staff",
@@ -155,6 +161,79 @@ export const ROLE_CATALOG: RoleTemplate[] = [
 
 export function findRole(key: string): RoleTemplate | undefined {
   return ROLE_CATALOG.find((r) => r.key === key);
+}
+
+/**
+ * Satu kalimat "dia mengurus apa" — yang tampil sebagai deskripsi karyawan.
+ *
+ * Untuk jabatan sendiri, ringkasan katalognya ("Tulis sendiri perannya…") tidak
+ * memberi tahu apa pun tentang orang ini, jadi catatan pemiliknya yang dipakai.
+ */
+export function buildDescription(params: { role: RoleTemplate; extra?: string }): string {
+  const { role, extra } = params;
+  const note = extra?.trim().split(/\r?\n/)[0]?.trim() ?? "";
+  if (role.key === "custom" && note) return note.slice(0, 240);
+  return role.summary;
+}
+
+/**
+ * AGENTS.md agent baru — kapabilitas dan urutan kerjanya tiap sesi.
+ *
+ * KENAPA FILE INI IKUT DITULIS. Saat agent dibuat, QwenPaw menyalin template
+ * bawaan `md_files/{lang}/` ke workspace-nya — jadi AGENTS.md SELALU ada
+ * isinya, yaitu isi template. Alur rekrut yang hanya menulis PROFILE.md dan
+ * SOUL.md meninggalkan satu dari tiga file tulang punggung dalam keadaan
+ * generik, dan generik di file inilah yang paling mahal: PROFILE menjawab "dia
+ * siapa", SOUL menjawab "dia bagaimana", AGENTS menjawab "dia harus berbuat apa
+ * begitu sesi dimulai".
+ */
+export function buildAgents(params: {
+  name: string;
+  role: RoleTemplate;
+  company: string;
+}): string {
+  const { name, role, company } = params;
+  const duties = role.duties.map((d) => `- ${d}`).join("\n");
+  const schedule = role.suggestedSchedule
+    ? `Jadwal tetapmu: **${role.suggestedSchedule.label}**. Sesi yang dipicu
+jadwal ini tidak punya lawan bicara — tidak ada yang bisa kamu tanyai di
+tengah jalan, jadi selesaikan dengan asumsi yang kamu sebutkan sendiri.`
+    : `Kamu belum punya jadwal tetap; untuk sekarang kamu bekerja saat diminta.`;
+
+  return `# ${name} · ${role.title}
+
+Kantor: ${company}
+
+## Yang bisa kamu kerjakan
+
+${duties}
+
+## Urutan kerja tiap sesi
+
+1. Baca PROFILE.md (kontrak kerja) dan SOUL.md (cara membawa diri). Tiap sesi
+   dimulai dari nol — dua file itulah ingatanmu tentang siapa dirimu.
+2. Kerjakan yang memicu sesi ini sampai TUNTAS. Setengah jadi yang dilaporkan
+   rapi tetap setengah jadi.
+3. Ambil data dari peralatan yang terpasang, bukan dari ingatan. Kalau
+   peralatannya tidak ada, sebutkan data apa yang kurang dan dari mana
+   asalnya — jangan menambal dengan tebakan.
+4. Tutup dengan hasil dan angka, bukan rencana. Kalau memang tidak ada yang
+   perlu dilaporkan, katakan begitu dalam satu kalimat.
+5. Kalau kamu menemukan pola yang layak diingat tentang perusahaan ini, catat
+   di MEMORY.md.
+
+## Jadwal
+
+${schedule}
+
+## Yang diusulkan, bukan dijalankan sendiri
+
+- Uang keluar, dalam bentuk apa pun.
+- Janji atau pesan yang sampai ke pihak luar atas nama perusahaan.
+- Apa pun yang tidak bisa dibatalkan.
+
+Untuk ketiganya: siapkan sampai tinggal disetujui, lalu tunggu.
+`;
 }
 
 /**

@@ -42,7 +42,7 @@ async function Occupied({ office }: { office: Office }) {
   return (
     <div className="space-y-6">
       <ReportView report={report} />
-      <HireCatalog roles={ROLE_CATALOG} compact />
+      <HireCatalog roles={ROLE_CATALOG} company={office.name} compact />
     </div>
   );
 }
@@ -76,7 +76,7 @@ function EmptyOffice({ officeName }: { officeName: string }) {
         </ul>
       </TermBlock>
 
-      <HireCatalog roles={ROLE_CATALOG} />
+      <HireCatalog roles={ROLE_CATALOG} company={officeName} />
     </div>
   );
 }
