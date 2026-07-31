@@ -39,6 +39,12 @@ export interface ChatStreamOptions {
    * jadi ia tidak bisa dibaca dari devtools maupun ditukar dari sisi klien.
    */
   prime?: boolean;
+  /**
+   * Layar ini bisa berpindah karyawan. Server menambahkan daftar kolega +
+   * aturan penanda `@alih:` ke instruksi pembuka — hanya berpengaruh bersama
+   * `prime`. Hanya klien yang tahu layar mana yang menyediakan perpindahan.
+   */
+  switching?: boolean;
   /** Tahap giliran ini berubah. Dipakai untuk indikator "sedang apa". */
   onPhase?: (phase: PawPhase) => void;
   /** Full visible answer so far (overwritten each delta, never appended). */
@@ -131,6 +137,7 @@ export async function chatStream(
           sessionId,
           agentId: opts.agentId,
           prime: opts.prime,
+          switching: opts.switching,
         }),
         signal: ctl.signal,
       });

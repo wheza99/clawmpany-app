@@ -3,6 +3,15 @@
 import { useCallback, useEffect, useRef, useState, type FC } from "react";
 import { useTheme } from "next-themes";
 
+import {
+  HANDOVER_CHARS,
+  HANDOVER_TURNS,
+  buildHandover,
+  findColleague,
+  parseHandoff,
+  visibleText,
+  type Colleague,
+} from "@/lib/handoff";
 import { scanForHireDraft } from "@/lib/hire-draft";
 import { chatStream, newId, newSessionId, type PawPhase } from "@/lib/paw";
 import { cn } from "@/lib/utils";
@@ -30,15 +39,14 @@ import {
  * tools like set_theme), this talks straight to the /api/chat proxy
  * (→ paw.wheza.id QwenPaw) through lib/paw.ts.
  *
- * QwenPaw's console chat only streams text + reasoning — it has no structured
- * tool-call events — so the model can't drive UI tools the way pabrik-startup
- * does. The same capabilities (theme, new chat, help) are instead reached with
- * slash commands (/light, /dark, /system, /new, /help) intercepted client-side
- * in `handleCommand`: the command is echoed into the transcript the way a shell
- * echoes input, and its result lands as a terminal block below it, keeping the
- * "everything happens in the conversation" feel without any sidebar or menu.
+ * Tool bawaan QwenPaw memang disiarkan terstruktur (`plugin_call`), tapi daftar
+ * tool sebuah agent tidak bisa ditambah dari sisi permintaan — lihat catatan
+ * panjang di lib/handoff.ts. Jadi kemampuan yang dijalankan browser dicapai
+ * lewat dua jalur teks: slash command yang dicegat di sini (`/light`, `/new`,
+ * `/ke`…) dan satu baris penanda `@alih:` yang boleh ditulis agent sendiri.
+ * Keduanya tampil sebagai blok terminal bernama `lokal`.
  *
- * Empat hal yang membuat transkrip ini bisa dibaca sambil berjalan:
+ * Lima hal yang membuat transkrip ini bisa dibaca sambil berjalan:
  *
  *  1. SETIAP giliran melaporkan tahapnya (lib/paw.ts `PawPhase`) — spinner yang
  *     berputar plus "berpikir… 12.4s", bukan kursor berkedip yang tidak bisa
@@ -54,6 +62,9 @@ import {
  *     gedung menulis usulannya sebagai teks; `AssistantBody` memungutnya dan
  *     menukarnya dengan kartu konfirmasi. Kalau pemungutnya gagal, yang tersisa
  *     adalah blok kode yang terbaca manusia — bukan gelembung kosong.
+ *  5. Dengan `colleagues`, pembicaraan bisa BERPINDAH orang di tengah jalan.
+ *     Tiap karyawan memegang sesinya sendiri; yang berganti cuma siapa yang
+ *     menjawab, dan blok `alih` mencatat perpindahannya di transkrip.
  */
 
 interface CommandBlock {
@@ -74,6 +85,8 @@ interface ChatMessage {
   phase?: PawPhase;
   /** `Date.now()` saat giliran dikirim — sumber angka detik di indikator. */
   startedAt?: number;
+  /** id karyawan yang mengucapkannya. Diisi hanya saat pembicaraan bisa pindah. */
+  speaker?: string;
   /** Render as a labelled terminal block instead of markdown text. */
   block?: CommandBlock;
 }
@@ -87,6 +100,15 @@ const PHASE_LABEL: Record<PawPhase, string> = {
   thinking: "berpikir",
   writing: "menulis jawaban",
 };
+
+/**
+ * Berapa kali pembicaraan boleh berpindah dalam SATU giliran pengguna.
+ *
+ * Dua karyawan yang sama-sama merasa ini bukan bidangnya akan saling melempar
+ * sampai kuota habis kalau tidak dibatasi — dan yang menonton cuma melihat
+ * layar berjalan sendiri. Dua sudah cukup untuk "manajer → karyawan yang tepat".
+ */
+const MAX_SWITCH_PER_TURN = 2;
 
 export interface ThreadProps {
   /**
@@ -106,6 +128,9 @@ export interface ThreadProps {
    * pun (lihat lib/qwenpaw.ts), jadi semua rute manajemennya menjawab 404 —
    * nama yang bisa diklik di sana cuma jalan buntu yang tampak seperti
    * kerusakan.
+   *
+   * Diabaikan bila `colleagues` diisi: di layar yang bisa berpindah orang,
+   * `canManage` membedakannya per pembicara, bukan per layar.
    */
   manageable?: boolean;
   /** Kalimat pembuka saat transkrip masih kosong. Diabaikan bila `prime`. */
@@ -117,6 +142,12 @@ export interface ThreadProps {
    * mengobrol, bukan di setiap halaman yang kebetulan memuat komponen ini.
    */
   prime?: boolean;
+  /**
+   * Semua yang boleh diajak bicara di layar ini, TERMASUK yang membuka
+   * percakapan. Diisi = pembicaraan bisa berpindah karyawan. Server tetap
+   * memeriksa ulang setiap tujuan, jadi daftar ini soal tampilan, bukan izin.
+   */
+  colleagues?: Colleague[];
 }
 
 export const Thread: FC<ThreadProps> = ({
@@ -126,24 +157,62 @@ export const Thread: FC<ThreadProps> = ({
   manageable = false,
   greeting,
   prime = false,
+  colleagues,
 }) => {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState("");
   const [isRunning, setIsRunning] = useState(false);
-  const [managing, setManaging] = useState(false);
+  /** Karyawan yang dialog pengaturannya sedang terbuka. */
+  const [managing, setManaging] = useState<Colleague | null>(null);
+
+  const roster = colleagues ?? [];
+  const canSwitch = roster.length > 1;
+  const opening = agentId ?? roster[0]?.id ?? "";
+
+  /** Siapa yang menjawab sekarang. */
+  const [speaking, setSpeaking] = useState(opening);
+  const speakingRef = useRef(opening);
 
   const { setTheme, resolvedTheme } = useTheme();
 
-  // session id is stable for the life of this mount so QwenPaw keeps the
-  // thread across turns; reload (or /new) starts a fresh session.
-  const sessionIdRef = useRef<string>(newSessionId());
+  // Satu sesi PER KARYAWAN, dibuat saat dia pertama kali bicara dan stabil
+  // selama mount ini supaya QwenPaw menyambung riwayatnya. Kalau semua berbagi
+  // satu id sesi, tiap karyawan akan membaca percakapan yang ditulis orang lain
+  // sebagai riwayatnya sendiri.
+  const sessionsRef = useRef<Record<string, string>>({});
   const abortRef = useRef<AbortController | null>(null);
+
+  /**
+   * Transkrip yang terlihat, dicatat terpisah dari state React supaya bisa
+   * dibaca di tengah rantai async — state di dalam closure sudah basi saat alih
+   * terjadi. Inilah yang dititipkan ke karyawan yang menerima alih.
+   */
+  const historyRef = useRef<Array<{ who: string; text: string }>>([]);
+  const lastAskRef = useRef("");
 
   const scrollerRef = useRef<HTMLDivElement | null>(null);
   const stickToBottomRef = useRef(true);
 
   const isEmpty = messages.length === 0;
-  const speaker = agentName || agentId || "agent";
+
+  const nameOf = (id: string): Colleague =>
+    roster.find((c) => c.id === id) ?? {
+      id,
+      name: agentName || id || "agent",
+      title: "karyawan",
+    };
+
+  /**
+   * Boleh diatur dari sini atau tidak.
+   *
+   * Manajer gedung tidak pernah masuk roster mana pun, jadi semua rute
+   * manajemennya menjawab 404 — foto yang bisa diklik untuknya cuma jalan buntu
+   * yang terbaca sebagai kerusakan. Di layar yang bisa berpindah orang, dialah
+   * yang membuka percakapan; semua nama LAIN di sana datang dari roster kantor
+   * dan memang bisa diatur.
+   */
+  const canManage = (id?: string): boolean =>
+    Boolean(id) && (canSwitch ? id !== opening : manageable);
 
   const nearBottom = useCallback(() => {
     const el = scrollerRef.current;
@@ -168,29 +237,49 @@ export const Thread: FC<ThreadProps> = ({
   };
 
   const patchMessage = (id: string, patch: Partial<ChatMessage>) => {
-    setMessages((prev) =>
-      prev.map((m) => (m.id === id ? { ...m, ...patch } : m)),
-    );
+    setMessages((prev) => prev.map((m) => (m.id === id ? { ...m, ...patch } : m)));
+  };
+
+  const dropMessage = (id: string) => {
+    setMessages((prev) => prev.filter((m) => m.id !== id));
+  };
+
+  const pushBlock = (block: CommandBlock) => {
+    setMessages((prev) => [...prev, { id: newId(), role: "assistant", text: "", block }]);
+  };
+
+  const remember = (who: string, text: string) => {
+    if (!text.trim()) return;
+    historyRef.current = [
+      ...historyRef.current,
+      { who, text: text.slice(0, HANDOVER_CHARS) },
+    ].slice(-HANDOVER_TURNS);
   };
 
   // ----------------------------------------------------------------- commands
 
   /** Echo `raw` as a user line, then a labelled block as the reply. */
-  const echoBlock = useCallback((raw: string, block: CommandBlock) => {
+  const echoBlock = (raw: string, block: CommandBlock) => {
     setMessages((prev) => [
       ...prev,
       { id: newId(), role: "user", text: raw },
       { id: newId(), role: "assistant", text: "", block },
     ]);
-  }, []);
+  };
 
   // Naik tiap `/new`. Efek pembuka membaca angka ini, jadi sesi baru dibuka
   // ulang dengan sambutan baru alih-alih halaman kosong.
   const [primeNonce, setPrimeNonce] = useState(0);
 
-  const handleCommand = useCallback((raw: string) => {
-    const body = raw.slice(1).trim().toLowerCase();
-    const name = body.split(/\s+/)[0] ?? "";
+  /**
+   * Jalankan satu slash command. Semuanya ditangani di browser — yang
+   * dikembalikan adalah pekerjaan yang masih harus DITUNGGU (`/ke` memanggil
+   * karyawan lain), atau null kalau sudah selesai saat itu juga.
+   */
+  const handleCommand = (raw: string): (() => Promise<void>) | null => {
+    const body = raw.slice(1).trim();
+    const name = (body.split(/\s+/)[0] ?? "").toLowerCase();
+    const rest = body.slice(name.length).trim();
 
     if (THEME_COMMANDS.has(name)) {
       setTheme(name);
@@ -199,11 +288,9 @@ export const Thread: FC<ThreadProps> = ({
         tone: "dim",
         rows: [{ label: "theme", value: name }],
         note:
-          name === "system" && resolvedTheme
-            ? `resolved ${resolvedTheme}`
-            : undefined,
+          name === "system" && resolvedTheme ? `resolved ${resolvedTheme}` : undefined,
       });
-      return;
+      return null;
     }
 
     if (name === "new" || name === "clear") {
@@ -211,9 +298,66 @@ export const Thread: FC<ThreadProps> = ({
       // empty state (banner, atau sambutan baru bila `prime`) yang jadi
       // konfirmasinya.
       setMessages([]);
-      sessionIdRef.current = newSessionId();
+      sessionsRef.current = {};
+      historyRef.current = [];
+      lastAskRef.current = "";
+      speakingRef.current = opening;
+      setSpeaking(opening);
       setPrimeNonce((n) => n + 1);
-      return;
+      return null;
+    }
+
+    if (canSwitch && (name === "siapa" || name === "who")) {
+      echoBlock(raw, {
+        label: "kantor",
+        tone: "dim",
+        rows: roster.map((c) => ({
+          label: c.id === speakingRef.current ? `${c.id} ←` : c.id,
+          value: c.name,
+        })),
+        note: `Sekarang kamu bicara dengan ${nameOf(speakingRef.current).name}. Ketik /ke <nama> untuk pindah — atau minta saja dengan kalimat biasa.`,
+      });
+      return null;
+    }
+
+    if (canSwitch && (name === "ke" || name === "to")) {
+      if (!rest) {
+        echoBlock(raw, {
+          label: "error",
+          tone: "warn",
+          note: "Sebut siapa yang mau diajak bicara — misalnya /ke wati.",
+        });
+        return null;
+      }
+      const target = findColleague(roster, rest);
+      if (!target) {
+        echoBlock(raw, {
+          label: "error",
+          tone: "warn",
+          note: `Tidak ada "${rest}" di kantor ini. Ketik /siapa untuk daftarnya.`,
+        });
+        return null;
+      }
+      if (target.id === speakingRef.current) {
+        echoBlock(raw, {
+          label: "alih",
+          tone: "dim",
+          note: `Kamu memang sedang bicara dengan ${target.name}.`,
+        });
+        return null;
+      }
+      // Diminta pengguna secara eksplisit, jadi tidak perlu membakar satu
+      // giliran model cuma untuk memutuskan hal yang sudah diputuskan.
+      setMessages((prev) => [...prev, { id: newId(), role: "user", text: raw }]);
+      return () =>
+        switchTo({
+          to: target,
+          brief: `${userName} meminta bicara denganmu langsung.`,
+          ask:
+            lastAskRef.current ||
+            "Belum ada pertanyaan — perkenalkan diri dan tawarkan bantuan.",
+          depth: 0,
+        });
     }
 
     if (name === "help") {
@@ -224,10 +368,16 @@ export const Thread: FC<ThreadProps> = ({
         rows: [
           { label: "/light · /dark · /system", value: "switch theme" },
           { label: "/new", value: "start a fresh chat" },
+          ...(canSwitch
+            ? [
+                { label: "/ke <nama>", value: "pindah karyawan" },
+                { label: "/siapa", value: "siapa saja di kantor" },
+              ]
+            : []),
           { label: "/help", value: "this list" },
         ],
       });
-      return;
+      return null;
     }
 
     echoBlock(raw, {
@@ -235,107 +385,234 @@ export const Thread: FC<ThreadProps> = ({
       tone: "warn",
       note: `unknown command: ${raw} — type /help for the list.`,
     });
-    // setTheme stabil dari next-themes; resolvedTheme ikut supaya catatan
-    // "/system" selalu menyebut tema yang benar-benar sedang berlaku.
-  }, [echoBlock, setTheme, resolvedTheme]);
+    return null;
+  };
+
+  // --------------------------------------------------------------------- alih
+
+  /**
+   * Sambungkan ke karyawan lain, lalu biarkan DIA yang menjawab.
+   *
+   * Ini yang membedakan "ganti lawan bicara" dari "operator menyambungkan
+   * telepon": penerimanya langsung dapat konteks — kenapa dia dipanggil, apa
+   * yang sudah dibicarakan, dan apa yang ditunggu — jadi jawabannya datang di
+   * giliran yang sama, bukan setelah pemilik mengetik ulang pertanyaannya.
+   */
+  const switchTo = async (params: {
+    to: Colleague;
+    brief: string;
+    ask: string;
+    depth: number;
+  }) => {
+    const { to, brief, ask, depth } = params;
+    const from = nameOf(speakingRef.current);
+
+    pushBlock({
+      label: "alih",
+      tone: "dim",
+      rows: [
+        { label: "dari", value: from.name },
+        { label: "ke", value: `${to.name} · ${to.title}` },
+      ],
+      note: brief || undefined,
+    });
+
+    speakingRef.current = to.id;
+    setSpeaking(to.id);
+
+    await runTurn(
+      to.id,
+      buildHandover({ from, brief, transcript: historyRef.current, ask }),
+      { hidden: true, depth: depth + 1 },
+    );
+  };
 
   // --------------------------------------------------------------------- send
 
   /**
    * Satu giliran chat. `hidden` menahan gelembung penggunanya — dipakai giliran
-   * pembuka, yang isinya instruksi sesi dan bukan sesuatu yang pernah diketik
-   * orang, jadi menampilkannya akan berbohong soal siapa yang bicara.
+   * pembuka dan giliran hasil alih, yang isinya instruksi sesi atau berkas
+   * pengalihan dan bukan sesuatu yang pernah diketik orang, jadi menampilkannya
+   * akan berbohong soal siapa yang bicara.
+   *
+   * Sesi yang belum pernah dipakai selalu dibuka dengan `prime`, TERMASUK saat
+   * pembicaraan baru dialihkan ke sana: instruksi sesi dan berkas pengalihan
+   * masuk dalam satu giliran tersembunyi yang sama, jadi tetap satu panggilan.
    */
-  const runTurn = useCallback(
-    async (text: string, hidden = false) => {
-      const assistantId = newId();
-      const opening: ChatMessage[] = hidden
-        ? []
-        : [{ id: newId(), role: "user", text }];
-      setMessages((prev) => [
-        ...prev,
-        ...opening,
-        {
-          id: assistantId,
-          role: "assistant",
-          text: "",
-          streaming: true,
-          phase: "connecting",
-          startedAt: Date.now(),
+  const runTurn = async (
+    target: string,
+    text: string,
+    opts: { hidden?: boolean; depth?: number } = {},
+  ) => {
+    const hidden = opts.hidden ?? false;
+    const depth = opts.depth ?? 0;
+
+    const known = sessionsRef.current[target];
+    const sessionId = known ?? newSessionId();
+    if (!known) sessionsRef.current[target] = sessionId;
+
+    const assistantId = newId();
+    setMessages((prev) => [
+      ...prev,
+      ...(hidden ? [] : [{ id: newId(), role: "user" as const, text }]),
+      {
+        id: assistantId,
+        role: "assistant",
+        text: "",
+        streaming: true,
+        phase: "connecting",
+        startedAt: Date.now(),
+        speaker: canSwitch ? target : undefined,
+      },
+    ]);
+    stickToBottomRef.current = true;
+
+    const ctl = new AbortController();
+    abortRef.current = ctl;
+
+    let raw = "";
+    try {
+      raw = await chatStream(text, sessionId, {
+        signal: ctl.signal,
+        agentId: target,
+        prime: !known,
+        switching: canSwitch,
+        onPhase: (phase) => patchMessage(assistantId, { phase }),
+        onText: (full) => {
+          raw = full;
+          patchMessage(assistantId, { text: visibleText(full) });
         },
-      ]);
-      setIsRunning(true);
-      stickToBottomRef.current = true;
-
-      const ctl = new AbortController();
-      abortRef.current = ctl;
-
-      try {
-        const reply = await chatStream(hidden ? "" : text, sessionIdRef.current, {
-          signal: ctl.signal,
-          agentId,
-          prime: hidden,
-          onPhase: (phase) => patchMessage(assistantId, { phase }),
-          onText: (full) => patchMessage(assistantId, { text: full }),
-          onReasoning: (full) => patchMessage(assistantId, { reasoning: full }),
-        });
-        patchMessage(assistantId, { text: reply, streaming: false });
-      } catch (err) {
-        if (ctl.signal.aborted) {
-          // Stop pressed: keep whatever streamed in so far, mark it done.
-          patchMessage(assistantId, { streaming: false });
-          return;
-        }
-        const msg = err instanceof Error ? err.message : "Gagal mengirim pesan.";
-        patchMessage(assistantId, {
-          text: msg,
-          error: true,
-          streaming: false,
-        });
-      } finally {
-        setIsRunning(false);
-        abortRef.current = null;
-      }
-    },
-    // agentId is here because switching employees must not reuse a closure
-    // still pointed at the previous one.
-    [agentId],
-  );
-
-  const send = useCallback(
-    async (text: string) => {
-      const trimmed = text.trim();
-      if (!trimmed || isRunning) return;
-
-      // Slash commands are intercepted locally and never sent to QwenPaw.
-      if (trimmed.startsWith("/")) {
-        handleCommand(trimmed);
-        setInput("");
+        onReasoning: (full) => patchMessage(assistantId, { reasoning: full }),
+      });
+    } catch (err) {
+      if (ctl.signal.aborted) {
+        // Stop pressed: keep whatever streamed in so far, mark it done.
+        patchMessage(assistantId, { streaming: false });
         return;
       }
+      const msg = err instanceof Error ? err.message : "Gagal mengirim pesan.";
+      patchMessage(assistantId, { text: msg, error: true, streaming: false });
+      return;
+    }
 
+    const handoff = canSwitch ? parseHandoff(raw) : null;
+    const said = handoff ? handoff.rest : raw;
+
+    // Balasan yang ISINYA cuma penanda alih tidak menyisakan apa pun untuk
+    // dibaca. Blok "alih" di bawahnya sudah mengatakan semuanya; gelembung
+    // kosong hanya menambah baris.
+    if (said || !handoff) {
+      patchMessage(assistantId, { text: said, streaming: false });
+      remember(nameOf(target).name, said);
+    } else {
+      dropMessage(assistantId);
+    }
+
+    if (!handoff) return;
+
+    const to = findColleague(roster, handoff.to);
+    if (!to || to.id === target) {
+      pushBlock({
+        label: "alih gagal",
+        tone: "warn",
+        note: `${nameOf(target).name} mencoba mengalihkan ke "${handoff.to}", dan tidak ada karyawan itu di kantor ini.`,
+      });
+      return;
+    }
+    if (depth >= MAX_SWITCH_PER_TURN) {
+      pushBlock({
+        label: "alih berhenti",
+        tone: "warn",
+        note: `Sudah ${depth} kali dialihkan untuk satu pertanyaan. Ketik /ke ${to.id} kalau memang mau lanjut ke ${to.name}.`,
+      });
+      return;
+    }
+
+    await switchTo({ to, brief: handoff.brief, ask: lastAskRef.current, depth });
+  };
+
+  /**
+   * Satu giliran penuh dari sisi pengguna — TERMASUK alih yang menyusul.
+   *
+   * Penanda "sedang jalan" dipegang di sini, bukan di dalam `runTurn`: kalau
+   * tiap giliran mematikannya sendiri, tombol send berkedip kembali di sela dua
+   * karyawan dan sempat menerima pesan yang akan salah alamat.
+   */
+  const runChain = async (job: () => Promise<void>) => {
+    setIsRunning(true);
+    try {
+      await job();
+    } finally {
+      setIsRunning(false);
+      abortRef.current = null;
+    }
+  };
+
+  const send = async (text: string) => {
+    const trimmed = text.trim();
+    if (!trimmed || isRunning) return;
+
+    // Slash commands are intercepted locally and never sent to QwenPaw.
+    if (trimmed.startsWith("/")) {
       setInput("");
-      await runTurn(trimmed);
-    },
-    [isRunning, runTurn, handleCommand],
-  );
+      const pending = handleCommand(trimmed);
+      if (pending) await runChain(pending);
+      return;
+    }
 
-  // Giliran pembuka. Penjaganya sebuah ref, bukan state, supaya efek yang
-  // dijalankan dua kali (StrictMode di dev) tetap menghasilkan SATU panggilan
-  // ke QwenPaw — bukan dua sambutan yang saling menimpa.
+    setInput("");
+    lastAskRef.current = trimmed;
+    remember(userName, trimmed);
+    await runChain(() => runTurn(speakingRef.current, trimmed));
+  };
+
+  // Giliran pembuka. Fungsinya dititipkan lewat ref supaya efek yang
+  // membukanya tidak ikut berjalan ulang tiap render — `runTurn` dan `runChain`
+  // dibuat baru tiap render karena keduanya saling memanggil dengan `switchTo`.
+  // Menitipkannya DI DALAM efek, bukan saat render, karena ref memang tidak
+  // boleh ditulis selagi merender.
+  const openRef = useRef<() => Promise<void>>(async () => {});
+  useEffect(() => {
+    openRef.current = () =>
+      runChain(() => runTurn(speakingRef.current, "", { hidden: true }));
+  });
+
+  // Penjaganya sebuah ref, bukan state, supaya efek yang dijalankan dua kali
+  // (StrictMode di dev) tetap menghasilkan SATU panggilan ke QwenPaw — bukan
+  // dua sambutan yang saling menimpa.
   const primedRef = useRef(-1);
   useEffect(() => {
     if (!prime || primedRef.current === primeNonce) return;
     primedRef.current = primeNonce;
-    void runTurn("", true);
-  }, [prime, primeNonce, runTurn]);
+    void openRef.current();
+  }, [prime, primeNonce]);
 
   const stop = useCallback(() => {
     abortRef.current?.abort();
   }, []);
 
+  const here = nameOf(speaking);
+
   return (
     <div className="bg-background flex h-full w-full flex-col">
+      {canSwitch ? (
+        // Siapa yang sedang menjawab HARUS terlihat tanpa menggulir ke bawah:
+        // begitu pembicaraan bisa berpindah, "aku sedang bicara dengan siapa"
+        // jadi pertanyaan yang muncul terus-menerus.
+        <div className="border-border bg-card/40 shrink-0 border-b px-4 py-2 sm:px-6">
+          <div className="mx-auto w-full max-w-[46rem]">
+            <p className="text-sm">
+              {here.name}
+              <span className="text-term-dim ml-2 text-[11px]">{here.title}</span>
+            </p>
+            <p className="text-term-dim text-[11px]">
+              Minta saja kalau mau bicara dengan orang lain — atau ketik{" "}
+              <span className="text-term-prompt">/siapa</span> untuk daftarnya.
+            </p>
+          </div>
+        </div>
+      ) : null}
+
       <div
         ref={scrollerRef}
         onScroll={onViewportScroll}
@@ -362,10 +639,14 @@ export const Thread: FC<ThreadProps> = ({
                 <AssistantMessage
                   key={m.id}
                   message={m}
-                  name={speaker}
-                  agentId={agentId}
+                  name={
+                    m.speaker ? nameOf(m.speaker).name : agentName || agentId || "agent"
+                  }
+                  agentId={m.speaker ?? agentId}
                   onManage={
-                    manageable && agentId ? () => setManaging(true) : undefined
+                    canManage(m.speaker ?? agentId)
+                      ? () => setManaging(nameOf((m.speaker ?? agentId)!))
+                      : undefined
                   }
                 />
               ),
@@ -384,6 +665,7 @@ export const Thread: FC<ThreadProps> = ({
               onSend={send}
               onStop={stop}
               isRunning={isRunning}
+              who={canSwitch ? here.name : undefined}
             />
           </div>
         </div>
@@ -393,11 +675,11 @@ export const Thread: FC<ThreadProps> = ({
           ulang dari nol. Dialog manajemen yang menampilkan keadaan basi lebih
           berbahaya daripada satu request tambahan: orang membukanya justru
           untuk memastikan perubahannya benar-benar mendarat. */}
-      {managing && agentId ? (
+      {managing ? (
         <AgentDialog
-          agentId={agentId}
-          agentName={speaker}
-          onClose={() => setManaging(false)}
+          agentId={managing.id}
+          agentName={managing.name}
+          onClose={() => setManaging(null)}
         />
       ) : null}
     </div>
@@ -529,9 +811,10 @@ const AssistantMessage: FC<{
   return (
     <div className="animate-fade-in">
       {message.block ? (
-        // Balasan slash command tidak datang dari agent mana pun — ia dihitung
-        // di browser ini. Menamainya dengan nama agent akan menyesatkan, dan
-        // karena itu ia juga tidak membawa foto yang membuka pengaturannya.
+        // Balasan slash command dan catatan alih tidak datang dari agent mana
+        // pun — keduanya dihitung di browser ini. Menamainya dengan nama agent
+        // adalah kebohongan kecil yang merusak arti semua nama lain, dan karena
+        // itu keduanya juga tidak membawa foto yang membuka pengaturannya.
         <MessageHeader marker="▸" name="lokal" tone="dim" />
       ) : (
         <MessageHeader marker="■" name={name} sub={agentId} onManage={onManage}>
@@ -692,7 +975,9 @@ const Composer: FC<{
   onSend: (text: string) => void;
   onStop: () => void;
   isRunning: boolean;
-}> = ({ value, onChange, onSend, onStop, isRunning }) => {
+  /** Nama yang sedang menjawab — hanya diisi saat pembicaraan bisa berpindah. */
+  who?: string;
+}> = ({ value, onChange, onSend, onStop, isRunning, who }) => {
   const ref = useRef<HTMLTextAreaElement | null>(null);
 
   /**
@@ -736,7 +1021,11 @@ const Composer: FC<{
         value={value}
         onChange={(e) => onChange(e.target.value)}
         onKeyDown={handleKeyDown}
-        placeholder="ketik pesan…  (/help untuk perintah)"
+        placeholder={
+          who
+            ? `pesan untuk ${who}…  (/siapa untuk pindah)`
+            : "ketik pesan…  (/help untuk perintah)"
+        }
         className="caret-term-prompt placeholder:text-term-dim max-h-40 min-h-8 w-full flex-1 resize-none bg-transparent py-1 text-sm leading-6 outline-none"
         rows={1}
         autoFocus

@@ -12,6 +12,7 @@
 // deltas, {object:"message", type:"reasoning"|"message"} block openers, a
 // final {object:"response", status:"completed"} event, and {status:"failed"}.
 
+import { officeDirectory } from "@/lib/directory";
 import { currentOffice, viewerName, type Office } from "@/lib/office";
 import { briefingFor } from "@/lib/prompt";
 import { CONCIERGE_AGENT_ID } from "@/lib/qwenpaw";
@@ -50,6 +51,7 @@ export async function POST(req: Request) {
     sessionId?: unknown;
     agentId?: unknown;
     prime?: unknown;
+    switching?: unknown;
   };
   try {
     body = await req.json();
@@ -106,10 +108,19 @@ export async function POST(req: Request) {
     // dibuka dengan pesan error.
     try {
       office ??= await currentOffice();
-      outgoing = await briefingFor(agentId, office, await viewerName());
+      // Daftar kolega hanya disusun untuk layar yang memang bisa berpindah
+      // orang. Halaman profil satu karyawan tidak membayar panggilan ini.
+      const colleagues =
+        body.switching === true ? await officeDirectory(office) : [];
+      outgoing = await briefingFor(agentId, office, await viewerName(), colleagues);
     } catch {
       outgoing = FALLBACK_BRIEFING;
     }
+    // Giliran pembuka yang SEKALIGUS membawa pesan: itu terjadi saat
+    // pembicaraan dialihkan ke karyawan yang sesinya belum pernah dibuka.
+    // Instruksi sesinya dulu, berkas pengalihannya menyusul — keduanya dalam
+    // satu giliran tersembunyi, jadi tetap satu panggilan ke QwenPaw.
+    if (message) outgoing = `${outgoing}\n\n${message}`;
   }
 
   const headers: Record<string, string> = {
