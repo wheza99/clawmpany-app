@@ -3,14 +3,16 @@
 //
 // Satu sumber kebenaran untuk "dengan siapa saja pembicaraan ini boleh
 // berpindah": manajer gedung + roster kantor si pemanggil, dan tidak sebutir
-// pun agent milik penyewa lain di instance bersama itu. Dipakai dua tempat yang
-// HARUS sepakat — preamble yang dibaca agent (`/api/chat`) dan daftar yang
-// dilihat pengguna (`app/chat/page.tsx`). Kalau keduanya menyusun daftarnya
-// sendiri-sendiri, agent bisa mengalihkan ke orang yang tidak ada di layar.
+// pun agent milik penyewa lain di instance bersama itu.
+//
+// Dipakai dua tempat yang HARUS sepakat — aturan alih yang dibaca agent
+// (lib/prompt.ts) dan daftar yang dilihat pengguna (app/chat/page.tsx). Kalau
+// keduanya menyusun daftarnya sendiri-sendiri, agent bisa mengalihkan ke orang
+// yang tidak ada di layar.
 // ────────────────────────────────────────────────────────────────
 import "server-only";
 
-import { describeRole, type Colleague } from "@/lib/handoff";
+import type { Colleague } from "@/lib/handoff";
 import type { Office } from "@/lib/office";
 import { CONCIERGE_AGENT_ID, listAgents, looksUnconfigured } from "@/lib/qwenpaw";
 
@@ -25,27 +27,30 @@ export async function officeDirectory(office: Office): Promise<Colleague[]> {
   const agents = await listAgents().catch(() => []);
   const byId = new Map(agents.map((a) => [a.id, a]));
 
-  const out: Colleague[] = [];
-
   const boss = byId.get(CONCIERGE_AGENT_ID);
-  out.push({
-    id: CONCIERGE_AGENT_ID,
-    name: boss?.name || "Clawmpany",
-    title: "manajer gedung — rekrut, jadwal, peralatan",
-  });
+  const out: Colleague[] = [
+    {
+      id: CONCIERGE_AGENT_ID,
+      name: boss?.name || "Clawmpany",
+      title: "manajer gedung — rekrut, jadwal, peralatan",
+    },
+  ];
 
   for (const id of office.roster) {
     if (id === CONCIERGE_AGENT_ID) continue;
     const agent = byId.get(id);
     if (!agent) continue;
-    out.push({
-      id,
-      name: agent.name || id,
-      title: looksUnconfigured(agent.description || "")
-        ? "belum diberi identitas"
-        : describeRole(agent.description || ""),
-    });
+    out.push({ id, name: agent.name || id, title: roleOf(agent) });
   }
 
   return out;
+}
+
+/** Jabatan dari deskripsi QwenPaw — potongan sebelum " | " ditulis manusia. */
+export function roleOf(agent: { description: string }): string {
+  const head = (agent.description || "").split(" | ")[0].trim();
+  if (!head || head.startsWith("- **Name:**") || looksUnconfigured(head)) {
+    return "belum ada jabatan";
+  }
+  return head.length > 60 ? `${head.slice(0, 57)}…` : head;
 }

@@ -5,15 +5,15 @@ baru di atas.
 
 ---
 
-## 2026-07-31 · Iterasi 8 — pembicaraan berpindah karyawan, konteksnya ikut
+## 2026-07-31 · Iterasi 9 — pembicaraan berpindah karyawan, konteksnya ikut
 
 ### Celah yang ditutup
 
-Sampai iterasi 7, bicara dengan karyawan tertentu berarti tahu lebih dulu siapa
+Sampai iterasi 8, bicara dengan karyawan tertentu berarti tahu lebih dulu siapa
 yang mengurus apa, lalu membuka halamannya. Itu membalik beban: pemilik yang
 harus memetakan kantornya sendiri sebelum boleh bertanya. Akibatnya pertanyaan
-berhenti di kepala — persis bentuk friction yang sama dengan halaman kosong,
-cuma pindah tempat.
+berhenti di kepala — bentuk friction yang sama dengan halaman kosong, cuma
+pindah tempat.
 
 Sekarang cukup bilang siapa yang dicari (atau tidak usah sama sekali):
 percakapan BERPINDAH ke orang itu, dan dia yang menjawab di giliran yang sama.
@@ -36,15 +36,18 @@ percakapan BERPINDAH ke orang itu, dan dia yang menjawab di giliran yang sama.
 | Keputusan | Alasan |
 |---|---|
 | **Alih lewat satu baris penanda `@alih: <id> \| <konteks>`, bukan tool MCP sungguhan** | Fakta 1+2 di atas: `switch_agent` sebagai tool asli menuntut Clawmpany menghosting server MCP sendiri dan memasangnya ke SETIAP agent di setiap roster — dan server itu harus terjangkau dari paw.wheza.id, artinya fiturnya mati saat app dijalankan lokal. Pelajaran iterasi 5 masih berlaku: yang tidak bisa dijalankan lokal tidak akan pernah benar-benar diuji. |
-| **Direktori kantor dititipkan di pesan PERTAMA tiap sesi, bukan ditulis ke `AGENTS.md`** | Menulis ke workspace berarti menulis ulang N file tiap kali ada yang direkrut atau dipecat, dan tetap basi untuk agent yang dibuat di luar Clawmpany. Preamble per sesi selalu benar tanpa satu pun tulisan ke workspace. Karena cuma sekali di awal, ia tidak pernah jadi pesan terakhir — panel "Pekerjaan terakhir" (yang membaca dua pesan buncit) tetap bersih. |
+| **Aturan alih menumpang `prime` (iterasi 8), bukan mekanisme kedua** | Giliran pembuka tersembunyi sudah ada dan sudah disusun server. Daftar kolega + aturan penandanya tinggal ikut di situ — nol pesan tambahan, dan instruksinya tetap tidak pernah menyentuh browser. |
+| **Direktori dititipkan per sesi, bukan ditulis ke `AGENTS.md`** | Menulis ke workspace berarti menulis ulang N file tiap kali ada yang direkrut atau dipecat, dan tetap basi untuk agent yang dibuat di luar Clawmpany. Instruksi pembuka selalu benar tanpa satu pun tulisan ke workspace. |
 | **Yang menerima alih langsung MENJAWAB, bukan cuma menyapa** | Berkas pengalihan berisi tiga hal: kenapa dia dipanggil, transkrip yang sudah berjalan, dan pertanyaan terakhir pemilik. Tanpa yang ketiga, pemilik harus mengetik ulang pertanyaannya — friction yang sama yang mau dihapus, cuma dipindah satu langkah. |
+| **Instruksi sesi + berkas pengalihan digabung jadi SATU giliran** | Karyawan yang baru dialihi belum punya sesi. Mengirim dua giliran berarti dua panggilan QwenPaw dan satu sambutan mubazir yang tidak pernah ditampilkan. |
 | **Satu sesi QwenPaw PER KARYAWAN, bukan satu sesi bersama** | Kalau semua berbagi satu id sesi, tiap karyawan membaca percakapan yang ditulis orang lain sebagai riwayatnya sendiri. |
-| **Berkas pengalihan tidak ditampilkan** | Pemilik tidak perlu membaca surat pengantar antar karyawan. Yang tampil cuma blok `alih` — dari siapa, ke siapa, alasannya. |
 | **Maksimal 2 alih per satu giliran pemilik** | Dua karyawan yang sama-sama merasa "ini bukan bidang saya" akan saling melempar sampai kuota habis, dan yang menonton cuma melihat layar berjalan sendiri. |
 | **Balasan yang isinya cuma penanda dibuang dari transkrip** | Blok `alih` sudah mengatakan semuanya; gelembung kosong di atasnya cuma menambah baris. |
-| **Nama pembicara ditempel di tiap balasan** | Begitu lebih dari satu orang menjawab dalam satu transkrip, balasan tanpa nama tidak terbaca. |
+| **Blok `alih` bernama `lokal`, sama seperti slash command** | Ia dihitung di browser, bukan diucapkan agent mana pun — aturan penamaan iterasi 8 berlaku apa adanya. |
+| **Baris "kamu bicara dengan siapa" pindah dari halaman ke dalam `Thread`** | Begitu lawan bicaranya bisa berganti, judul statis di halaman jadi bohong. |
 | **`/ke <nama>` memotong satu giliran model** | Kalau pemilik sudah menyebut tujuannya lewat perintah, membakar satu panggilan model cuma untuk memutuskan hal yang sudah diputuskan itu menunggu tanpa guna. |
-| **Server tetap yang memutuskan boleh atau tidak** | Daftar kolega yang dikirim ke browser dan preamble yang dibaca agent disusun dari SATU sumber (`lib/directory.ts`) yang membaca roster yang sama dengan gerbang di `/api/chat`. Agent tidak akan pernah diberi tahu ada kolega yang tidak boleh dituju. |
+| **Penanda `isRunning` dipegang rantai, bukan tiap giliran** | Kalau tiap giliran mematikannya sendiri, tombol send berkedip kembali di sela dua karyawan — dan sempat menerima pesan yang akan salah alamat. |
+| **Server tetap yang memutuskan boleh atau tidak** | Daftar kolega yang dikirim ke browser dan aturan yang dibaca agent disusun dari SATU sumber (`lib/directory.ts`) yang membaca roster yang sama dengan gerbang di `/api/chat`. Agent tidak akan pernah diberi tahu ada kolega yang tidak boleh dituju. |
 
 ### Diverifikasi di browser dengan agent produksi
 
@@ -52,20 +55,19 @@ Roster probe (`archylabs`, `sirksa`) dipasang sementara di `SOLO_OFFICE`, lalu
 dikembalikan ke `[]`.
 
 - **"saya ingin bicara dengan sirksa"** → Clawmpany membalas `@alih: sirksa | …`,
-  blok `alih` muncul (dari Clawmpany → ke Sirksa), header + placeholder ikut
-  berganti, dan Sirksa menjawab sendiri: *"Halo, Wheza — saya Sirksa, QA
-  Engineer di sini…"*
+  blok `alih` muncul (dari Clawmpany → ke Sirksa), baris judul + placeholder
+  composer ikut berganti, dan Sirksa menjawab sendiri: *"Halo, Wheza — saya
+  Sirksa, QA Engineer di sini…"*
 - **`/siapa`** → daftar tiga orang dengan penanda `←` pada yang sedang bicara.
-- **`/ke clawmpany`** → alih balik ke sesi yang SUDAH ada (direktori tidak
-  dikirim ulang). Clawmpany menjawab pertanyaan yang tadi diajukan ke Sirksa
-  tanpa pemilik mengetiknya ulang: *"Tunggu — ini urusan saya, bukan Sirksa…
-  Cara rekrut di sini: kamu tidak perlu mengisi apa-apa."* Itu bukti berkas
-  pengalihan sampai utuh.
+- **`/ke clawmpany`** → alih balik ke sesi yang SUDAH ada. Clawmpany menjawab
+  pertanyaan yang tadi diajukan ke Sirksa tanpa pemilik mengetiknya ulang:
+  *"Tunggu — ini urusan saya, bukan Sirksa… Cara rekrut di sini: kamu tidak
+  perlu mengisi apa-apa."* Itu bukti berkas pengalihan sampai utuh.
 - Tidak ada error di console. `next build` dan `eslint` hijau.
 
-Protokolnya juga diuji langsung ke `paw.wheza.id` dengan preamble yang persis
-dihasilkan `buildDirectory()`: model menaruh penanda di baris pertama dan
-menutup dengan satu kalimat pamit, sesuai instruksi.
+Protokolnya juga diuji langsung ke `paw.wheza.id` dengan aturan yang persis
+dihasilkan `handoffRules()`: model menaruh penanda di baris pertama dan menutup
+dengan satu kalimat pamit, sesuai instruksi.
 
 ### Sisa yang perlu dibereskan
 
@@ -73,6 +75,52 @@ menutup dengan satu kalimat pamit, sesuai instruksi.
   `probe-alih-a1` (agent `clawmpany`) dan `probe-alih-b1` (agent `tukang`).
 - Alih baru aktif di `/chat`. Halaman `/agent/[id]` sengaja tetap satu karyawan
   — itu drill-down ke pekerjaan SATU orang, bukan meja depan.
+
+---
+
+## 2026-07-31 · Iterasi 8 — chat yang menjelaskan dirinya sendiri
+
+### Tiga keluhan, satu akar
+
+Semua bermuara pada hal yang sama: **transkrip tidak memberi tahu apa pun soal
+keadaannya sendiri.** Kursor berkedip tidak bisa dibedakan dari aplikasi yang
+menggantung; gelembung tanpa nama tidak bisa dibedakan antar-karyawan; dan
+halaman kosong menuntut orang menebak apa yang boleh ditanyakan.
+
+### Keputusan
+
+| Keputusan | Alasan |
+|---|---|
+| **Tahap giliran dibaca dari aliran SSE, bukan ditebak dari waktu** | `lib/paw.ts` sudah tahu bedanya blok `reasoning` dan `message`. Empat tahap — menghubungi → menunggu → berpikir → menulis — jadi fakta, bukan animasi yang berpura-pura tahu. |
+| **Spinner braille + detik berjalan** | Spinner membuktikan aplikasinya hidup; angka detiknya yang membuat penantian bisa dinilai — 4 detik wajar, 70 detik alasan menekan stop. |
+| **Bingkai spinner digerakkan JS, bukan CSS** | Yang berubah adalah ISI karakter; `content` di keyframe belum bisa diandalkan lintas browser, dan memutar elemen dengan `transform` melanggar aturan "tidak ada lengkungan di mana pun". |
+| **Cuplikan pikiran tampil selagi menalar, tombol `thinking` setelahnya** | Saat belum ada satu kata pun, baris terakhir reasoning adalah satu-satunya bukti ada yang bergerak. Begitu jawaban mengalir, ia berhenti berguna. |
+| **Nama di setiap gelembung: satu kata untuk manusia, nama + id untuk agent** | Kantor berisi 20 karyawan menghasilkan 20 transkrip yang terlihat persis sama. Nama panggilan diambil dari Clerk lewat `viewerName()` — sengaja TIDAK ditaruh di `Office`, karena perakit laporan tidak butuh nama siapa pun dan tidak perlu membayar panggilan Clerk tambahan. |
+| **Balasan slash command diberi nama `lokal`, bukan nama agent** | Ia dihitung di browser dan tidak pernah menyentuh paw.wheza.id. Menamainya dengan nama agent adalah kebohongan kecil yang merusak arti semua nama lain. |
+| **Sesi dibuka satu giliran tersembunyi (`prime`), bukan sapaan statis** | QwenPaw `/api/console/chat` tidak punya slot *system message* — satu bentuk pesan saja. Jadi framing dilakukan seperti yang memang mungkin: giliran pertama yang tidak pernah ditampilkan, dan yang tampil hanya jawabannya. |
+| **Instruksi sesi disusun SERVER (`lib/prompt.ts`), tidak dikirim sebagai prop** | Isinya aset produk yang tidak perlu ada di HTML tiap halaman, dan fakta kantor di dalamnya tidak boleh bisa ditukar dari devtools — alasan yang sama dengan token yang tidak pernah menyeberang. |
+| **Manajer gedung dibekali keadaan kantor; karyawan tidak** | Sambutan yang menyebut "satu orang belum punya identitas" berguna; menyuapi karyawan identitasnya sendiri yang sudah ada di `PROFILE.md` cuma menambah token. |
+| **Halaman `/agent/[id]` TIDAK auto-prime** | Halaman itu dibuka untuk MEMERIKSA, dan kebanyakan kunjungan berakhir tanpa satu pesan pun. Auto-prime di sana = satu panggilan QwenPaw tiap kali seseorang mengklik nama. |
+| **Gagal menyusun instruksi tidak menggagalkan pembukaan** | Sambutan yang lebih tumpul jauh lebih baik daripada layar chat yang dibuka dengan pesan error. |
+
+### Bug yang ikut ketahuan
+
+`autoGrow` di composer menulis `height = "160"` tanpa satuan — nilai tidak sah,
+jadi browser mengabaikannya dan kotak ketik tidak pernah tumbuh. Menambahkan
+`px` justru memperlihatkan masalah kedua: pengukuran pertama terjadi sebelum
+layout selesai, dan `scrollHeight` saat itu mengembalikan tinggi kolom (752px),
+cukup untuk mengunci composer setinggi 160px seumur halaman. Perbaikannya:
+kotak kosong tidak pernah diberi tinggi eksplisit — selama kosong, `rows=1` +
+`min-h-8` yang menentukan.
+
+### Diverifikasi
+
+Dijalankan sungguhan terhadap paw.wheza.id: sesi dibuka sendiri oleh manajer
+gedung ("Kantormu sekarang kosong — belum ada satu pun karyawan…"), instruksi
+sesinya tidak muncul di transkrip, nama tampil di tiap gelembung, indikator
+berjalan lewat keempat tahapnya, `/new` membuka sesi baru dengan sambutan baru,
+`/help` bernama `lokal`. Diperiksa di gelap & terang, desktop & 375px. Tidak ada
+error di konsol maupun di log server.
 
 ---
 

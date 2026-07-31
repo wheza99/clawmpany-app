@@ -12,7 +12,7 @@
 // ────────────────────────────────────────────────────────────────
 import "server-only";
 
-import { auth, clerkClient } from "@clerk/nextjs/server";
+import { auth, clerkClient, currentUser } from "@clerk/nextjs/server";
 
 const ROSTER_KEY = "clawmpanyRoster";
 
@@ -93,6 +93,28 @@ export async function currentOffice(): Promise<Office> {
 function personalName(firstName: string | null, username: string | null): string {
   const who = firstName || username;
   return who ? `Kantor ${who}` : "Kantor Pribadi";
+}
+
+/**
+ * Nama panggilan orang yang sedang melihat — SATU KATA.
+ *
+ * Dipakai sebagai label di setiap gelembung chat, jadi panjangnya dibatasi di
+ * sini, bukan dengan `truncate` di CSS: "Wheza Ghaza Latansa Aji" akan mendorong
+ * seluruh baris pesan, dan nama belakang tidak menambah informasi apa pun soal
+ * siapa yang bicara. Sengaja TIDAK ditaruh di `Office`: kantor dipakai juga oleh
+ * perakit laporan, dan menambah satu panggilan Clerk di sana berarti membayar
+ * biaya itu di halaman yang tidak menampilkan nama siapa pun.
+ */
+export async function viewerName(): Promise<string> {
+  if (!authEnabled()) return "kamu";
+  const user = await currentUser().catch(() => null);
+  if (!user) return "kamu";
+  const raw =
+    user.firstName ||
+    user.username ||
+    user.primaryEmailAddress?.emailAddress.split("@")[0] ||
+    "";
+  return raw.trim().split(/\s+/)[0] || "kamu";
 }
 
 /**

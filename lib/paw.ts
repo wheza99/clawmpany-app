@@ -10,6 +10,22 @@
 const CHAT_ENDPOINT = "/api/chat";
 const STREAM_IDLE_MS = 90_000;
 
+/**
+ * Tahap sebuah giliran, seperti yang benar-benar bisa dibaca dari alirannya —
+ * bukan tebakan berbasis waktu:
+ *
+ *   connecting → permintaan dikirim, header balasan belum datang
+ *   waiting    → tersambung, belum ada satu token pun
+ *   thinking   → blok `reasoning` mengalir (agent masih menalar)
+ *   writing    → blok `message` mengalir (jawaban sudah ditulis)
+ *
+ * Ini yang membuat penantian bisa dijelaskan. Kursor berkedip cuma bilang
+ * "belum selesai"; keempat tahap ini bilang APA yang sedang terjadi, sehingga
+ * jeda 20 detik karena agent sedang menalar tidak terbaca seperti aplikasi
+ * yang menggantung.
+ */
+export type PawPhase = "connecting" | "waiting" | "thinking" | "writing";
+
 export interface ChatStreamOptions {
   signal?: AbortSignal;
   /**
@@ -18,11 +34,19 @@ export interface ChatStreamOptions {
    */
   agentId?: string;
   /**
-   * Giliran pertama sesi ini: minta server menempelkan direktori kantor +
-   * aturan mengalihkan di depan pesan. Hanya klien yang tahu apakah sesinya
-   * sudah dipakai, jadi klien yang memberi tahu.
+   * Giliran pembuka: `message` diabaikan dan SERVER yang menyusun instruksinya
+   * (lihat lib/prompt.ts). Isi instruksi itu tidak pernah menyentuh browser,
+   * jadi ia tidak bisa dibaca dari devtools maupun ditukar dari sisi klien.
    */
-  withDirectory?: boolean;
+  prime?: boolean;
+  /**
+   * Layar ini bisa berpindah karyawan. Server menambahkan daftar kolega +
+   * aturan penanda `@alih:` ke instruksi pembuka — hanya berpengaruh bersama
+   * `prime`. Hanya klien yang tahu layar mana yang menyediakan perpindahan.
+   */
+  switching?: boolean;
+  /** Tahap giliran ini berubah. Dipakai untuk indikator "sedang apa". */
+  onPhase?: (phase: PawPhase) => void;
   /** Full visible answer so far (overwritten each delta, never appended). */
   onText?: (fullText: string) => void;
   /** Full reasoning text so far (collapsed "thinking" block). */
@@ -67,6 +91,9 @@ function failureMessage(e: Record<string, unknown>): string {
  * Returns the final visible answer text. Throws on network failure, timeout,
  * or a `status:"failed"` event from QwenPaw — the caller renders the thrown
  * message as an error row.
+ *
+ * Dengan `opts.prime`, `message` boleh kosong: yang dikirim ke agent disusun
+ * server dari keadaan kantor, dan hanya JAWABANNYA yang tampil di transkrip.
  */
 export async function chatStream(
   message: string,
@@ -87,8 +114,18 @@ export async function chatStream(
     }, STREAM_IDLE_MS);
   };
 
+  // Tahap hanya dilaporkan saat BERUBAH, jadi pemanggil boleh memasangnya
+  // langsung ke state React tanpa memicu render per token.
+  let phase: PawPhase | null = null;
+  const setPhase = (next: PawPhase): void => {
+    if (phase === next) return;
+    phase = next;
+    opts.onPhase?.(next);
+  };
+
   try {
     bumpIdle();
+    setPhase("connecting");
 
     let res: Response;
     try {
@@ -99,7 +136,8 @@ export async function chatStream(
           message,
           sessionId,
           agentId: opts.agentId,
-          withDirectory: opts.withDirectory,
+          prime: opts.prime,
+          switching: opts.switching,
         }),
         signal: ctl.signal,
       });
@@ -110,6 +148,7 @@ export async function chatStream(
 
     if (!res.ok) throw new Error(await describeHttpError(res));
     if (!res.body) throw new Error("paw.wheza.id tidak mengirim aliran balasan.");
+    setPhase("waiting");
 
     const kindOf = new Map<string, BlockKind>();
     const textOf = new Map<string, string>();
@@ -157,6 +196,10 @@ export async function chatStream(
         kindOf.set(id, type as BlockKind);
         touch(id);
         lastBlock = id;
+        // Blok yang DIBUKA sudah cukup untuk mengumumkan tahapnya — menunggu
+        // token pertama membuat indikator ketinggalan satu langkah, dan blok
+        // reasoning yang panjang justru bagian yang paling perlu dijelaskan.
+        setPhase(type === "reasoning" ? "thinking" : "writing");
         return;
       }
 
@@ -167,8 +210,13 @@ export async function chatStream(
         touch(id);
         textOf.set(id, e.delta === false ? e.text : (textOf.get(id) ?? "") + e.text);
         const kind = kindOf.get(id);
-        if (kind === "message") opts.onText?.(join("message"));
-        else opts.onReasoning?.(join("reasoning"));
+        if (kind === "message") {
+          setPhase("writing");
+          opts.onText?.(join("message"));
+        } else {
+          setPhase("thinking");
+          opts.onReasoning?.(join("reasoning"));
+        }
         return;
       }
 

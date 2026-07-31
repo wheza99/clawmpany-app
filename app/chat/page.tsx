@@ -1,7 +1,7 @@
 import { OfficeHeader } from "@/components/office/header";
 import { Thread } from "@/components/chat/thread";
 import { officeDirectory } from "@/lib/directory";
-import { authEnabled, currentOffice } from "@/lib/office";
+import { authEnabled, currentOffice, viewerName } from "@/lib/office";
 import { CONCIERGE_AGENT_ID } from "@/lib/qwenpaw";
 
 export const dynamic = "force-dynamic";
@@ -9,21 +9,29 @@ export const dynamic = "force-dynamic";
 /**
  * Meja depan kantor.
  *
- * Ini BUKAN pintu masuk aplikasi — layar depan adalah laporan. Yang dibuka di
- * sini adalah percakapan, dan yang menerima pertama kali manajer gedung: dia
- * yang tahu siapa mengurus apa. Begitu jelas urusannya milik karyawan lain,
- * pembicaraan BERPINDAH ke orang itu dan dia yang menjawab — jadi pemilik tidak
- * perlu tahu lebih dulu siapa yang harus ditanya, yang selama ini jadi alasan
- * pertanyaan berhenti di kepala dan tidak pernah ditanyakan.
+ * Ini BUKAN pintu masuk aplikasi — layar depan adalah laporan. Yang menerima
+ * lebih dulu di sini manajer gedung: dia yang tahu siapa mengurus apa. Begitu
+ * jelas urusannya milik karyawan lain, pembicaraan BERPINDAH ke orang itu dan
+ * dia yang menjawab — jadi pemilik tidak perlu tahu duluan siapa yang harus
+ * ditanya, yang selama ini jadi alasan pertanyaan berhenti di kepala.
  *
- * Daftar orang diambil di server: manajer gedung + roster kantor ini saja.
- * /api/chat memeriksa ulang tiap tujuan, jadi daftar ini soal tampilan, bukan
- * izin.
+ * Sambutannya TIDAK ditulis di sini. Dulu halaman ini merakit satu kalimat
+ * statis dari jumlah roster; sekarang manajer gedungnya sendiri yang membuka
+ * percakapan (`prime`), dibekali keadaan kantor oleh server — jadi kalimat
+ * pertama yang dibaca orang sudah menyebut siapa yang belum punya identitas
+ * atau jadwal, bukan "ada yang bisa saya bantu?".
+ *
+ * Daftar orangnya disusun di server: manajer gedung + roster kantor ini saja.
+ * /api/chat memeriksa ulang setiap tujuan, jadi daftar ini soal tampilan,
+ * bukan izin. Baris "kamu sedang bicara dengan siapa" pindah ke dalam Thread —
+ * begitu lawan bicaranya bisa berganti, judul statis di halaman jadi bohong.
  */
 export default async function ChatPage() {
   const office = await currentOffice();
-  const colleagues = await officeDirectory(office).catch(() => []);
-  const staff = colleagues.filter((c) => c.id !== CONCIERGE_AGENT_ID);
+  const [viewer, colleagues] = await Promise.all([
+    viewerName(),
+    officeDirectory(office).catch(() => []),
+  ]);
 
   return (
     <div className="flex h-svh flex-col">
@@ -31,14 +39,10 @@ export default async function ChatPage() {
       <div className="min-h-0 flex-1">
         <Thread
           agentId={CONCIERGE_AGENT_ID}
+          agentName="clawmpany"
+          userName={viewer}
           colleagues={colleagues}
-          greeting={
-            staff.length === 0
-              ? "Kantormu masih kosong. Ceritakan usahamu — saya usulkan siapa yang paling layak direkrut duluan."
-              : `Kantor ${office.name} punya ${staff.length} karyawan: ${staff
-                  .map((c) => c.name)
-                  .join(", ")}. Tanya apa saja — kalau urusannya milik salah satu dari mereka, saya sambungkan.`
-          }
+          prime
         />
       </div>
     </div>

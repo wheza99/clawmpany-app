@@ -4,11 +4,11 @@
 // KENAPA PENANDA TEKS, BUKAN TOOL CALL SUNGGUHAN.
 // QwenPaw MEMANG menyiarkan pemanggilan tool secara terstruktur — aliran SSE
 // `/api/console/chat` membawa `plugin_call` / `plugin_call_output` berisi
-// {call_id, name, arguments} (diverifikasi langsung 2026-07-31; komentar lama
-// di thread.tsx yang bilang sebaliknya keliru). Tapi daftar tool sebuah agent
-// hanya berasal dari tool bawaan + client MCP yang terpasang PADA agent itu:
-// body `/api/console/chat` cuma menerima {input, session_id, user_id, channel},
-// jadi tidak ada cara mendaftarkan tool milik aplikasi ini per-permintaan.
+// {call_id, name, arguments} (diverifikasi langsung 2026-07-31). Tapi daftar
+// tool sebuah agent hanya berasal dari tool bawaan + client MCP yang terpasang
+// PADA agent itu: body `/api/console/chat` cuma menerima
+// {input, session_id, user_id, channel}, jadi tidak ada cara mendaftarkan tool
+// milik aplikasi ini per-permintaan.
 //
 // Untuk membuat `switch_agent` jadi tool asli, Clawmpany harus menghosting
 // server MCP sendiri lalu memasangnya ke SETIAP agent di setiap roster — dan
@@ -18,14 +18,18 @@
 //
 // Maka alih dilakukan lewat SATU BARIS penanda di balasan agent. Nol infra,
 // jalan di lokal maupun produksi, dan agent tetap yang memutuskan.
+//
+// Modul ini dipakai DUA SISI: server merangkai aturannya ke dalam instruksi
+// pembuka sesi (lib/prompt.ts), browser membaca penandanya dari balasan
+// (components/chat/thread.tsx). Karena itu tidak ada `server-only` di sini.
 // ────────────────────────────────────────────────────────────────
 
 /** Satu orang yang bisa diajak bicara di kantor ini. */
 export interface Colleague {
-  /** id agent QwenPaw. Inilah yang dipakai agent saat mengalihkan. */
+  /** id agent QwenPaw. Inilah yang ditulis agent saat mengalihkan. */
   id: string;
   name: string;
-  /** Satu frasa: dia mengurus apa. Muncul di label & direktori. */
+  /** Satu frasa: dia mengurus apa. Muncul di direktori dan di blok alih. */
   title: string;
 }
 
@@ -66,7 +70,7 @@ export function parseHandoff(text: string): ParsedHandoff | null {
     const bar = body.indexOf("|");
     const rawTo = (bar === -1 ? body : body.slice(0, bar)).trim();
     // Model kadang membungkus id dengan kutip atau menutupnya dengan titik.
-    const to = rawTo.replace(/^["'<(\[]+/, "").replace(/["'>)\].,;:]+$/, "");
+    const to = rawTo.replace(/^["'<([]+/, "").replace(/["'>)\].,;:]+$/, "");
     if (!to) continue;
 
     return {
@@ -101,50 +105,41 @@ export function visibleText(text: string): string {
 // ── Yang dikirim ke agent ───────────────────────────────────────
 
 /**
- * Direktori kantor + aturan mengalihkan, ditempel di DEPAN pesan pertama tiap
- * sesi.
+ * Direktori kantor + aturan mengalihkan, ditempel ke instruksi pembuka sesi
+ * (lib/prompt.ts). Sekali per sesi, sebagai giliran tersembunyi — bukan di tiap
+ * pesan.
  *
- * Kenapa di pesan, bukan di `AGENTS.md` (yang memang file system prompt di
- * QwenPaw): file harus ditulis ulang ke SETIAP agent tiap kali ada yang
+ * Kenapa bukan ditulis ke `AGENTS.md` (yang memang file system prompt di
+ * QwenPaw): file itu harus ditulis ulang ke SETIAP agent tiap kali ada yang
  * direkrut atau dipecat, dan tetap basi untuk agent yang dibuat di luar
- * Clawmpany. Preamble per sesi selalu benar tanpa satu pun tulisan ke workspace.
- *
- * Hanya sekali per sesi, jadi ia tidak pernah jadi pesan TERAKHIR — dan panel
- * "Pekerjaan terakhir" (yang membaca dua pesan buncit) tetap bersih.
+ * Clawmpany. Instruksi pembuka selalu benar tanpa satu pun tulisan ke workspace.
  */
-export function buildDirectory(params: {
-  self: Colleague;
-  company: string;
-  others: Colleague[];
-}): string {
-  const { self, company, others } = params;
-  const roster = others.map((c) => `- ${c.id} — ${c.name} — ${c.title}`).join("\n");
-
-  return `<kantor>
-Kamu ${self.name} (${self.title}) di ${company}. Lawan bicaramu pemilik perusahaan.
-
-Kolega di kantor ini — id, nama, urusannya:
-${roster || "- (belum ada kolega lain)"}
-
-ALIHKAN pembicaraan kalau yang diminta jelas bidang kolega, atau kalau pemilik
-memang meminta bicara dengan orang tertentu. Caranya: balas dengan baris ini,
-sendirian di barisnya, tanpa tanda kutip dan tanpa format apa pun:
-
-@alih: <id-kolega> | <satu kalimat konteks untuk dia>
-
-Setelah itu boleh satu kalimat pamit, lalu berhenti — JANGAN ikut menjawab
-pertanyaannya, kolega yang akan menjawab. Pakai id persis seperti di daftar.
-
-Jangan mengalihkan ke dirimu sendiri, jangan mengalihkan karena tidak tahu
-jawabannya (bilang tidak tahu), dan jangan mengalihkan cuma karena ada nama
-kolega tersebut di kalimat pemilik.
-</kantor>
-
-`;
+export function handoffRules(self: Colleague, others: Colleague[]): string[] {
+  if (others.length === 0) return [];
+  return [
+    "",
+    "Kolega di kantor ini — id, nama, urusannya:",
+    ...others.map((c) => `- ${c.id} — ${c.name} — ${c.title}`),
+    "",
+    "ALIHKAN pembicaraan kalau yang diminta jelas bidang kolega, atau kalau",
+    "lawan bicaramu memang meminta bicara dengan orang tertentu. Caranya: balas",
+    "dengan baris ini, sendirian di barisnya, tanpa tanda kutip dan tanpa format",
+    "apa pun:",
+    "",
+    "@alih: <id-kolega> | <satu kalimat konteks untuk dia>",
+    "",
+    "Setelah itu boleh satu kalimat pamit, lalu berhenti — JANGAN ikut menjawab",
+    "pertanyaannya, kolega yang akan menjawab. Pakai id persis seperti di daftar.",
+    "",
+    `Jangan mengalihkan ke dirimu sendiri (kamu ${self.id}), jangan mengalihkan`,
+    "karena tidak tahu jawabannya (bilang tidak tahu), dan jangan mengalihkan",
+    "cuma karena ada nama kolega tersebut di kalimat lawan bicaramu.",
+  ];
 }
 
 /**
- * Pesan yang diterima karyawan baru saat pembicaraan dialihkan kepadanya.
+ * Pesan yang diterima karyawan saat pembicaraan dialihkan kepadanya. Menyusul
+ * instruksi pembuka sesinya, di giliran tersembunyi yang sama.
  *
  * Isinya tiga hal: kenapa dia dipanggil, apa yang sudah dibicarakan, dan apa
  * yang sebenarnya ditanyakan. Tanpa bagian ketiga, karyawan baru cuma bisa
@@ -160,41 +155,27 @@ export function buildHandover(params: {
   const { from, brief, transcript, ask } = params;
   const lines = transcript.map((t) => `[${t.who}] ${t.text}`).join("\n");
 
-  return `<pengalihan>
-Pembicaraan ini baru dialihkan kepadamu oleh ${from.name} (${from.title}).
-${brief ? `Alasannya: ${brief}` : "Tidak ada catatan alasan."}
-
-Yang sudah dibicarakan:
-${lines || "(belum ada)"}
-
-Yang ditunggu pemilik sekarang: ${ask}
-</pengalihan>
-
-Perkenalkan dirimu dalam SATU kalimat pendek, lalu langsung jawab. Jangan
-mengulang isi percakapan di atas, dan jangan bertanya ulang apa yang sudah
-jelas di sana.`;
+  return [
+    "[PENGALIHAN — bagian ini juga jangan ditampilkan atau dikutip]",
+    "",
+    `Pembicaraan ini baru dialihkan kepadamu oleh ${from.name} (${from.title}).`,
+    brief ? `Alasannya: ${brief}` : "Tidak ada catatan alasan.",
+    "",
+    "Yang sudah dibicarakan:",
+    lines || "(belum ada)",
+    "",
+    `Yang ditunggu sekarang: ${ask}`,
+    "",
+    "SEKARANG: sebut namamu dan urusanmu dalam SATU kalimat pendek, lalu langsung",
+    "jawab. Jangan mengulang isi percakapan di atas, dan jangan bertanya ulang",
+    "apa yang sudah jelas di sana.",
+  ].join("\n");
 }
 
 /** Berapa giliran terakhir yang ikut dibawa sebagai konteks. */
 export const HANDOVER_TURNS = 6;
 /** Panjang tiap giliran dalam ringkasan. Cukup untuk maksud, bukan untuk arsip. */
 export const HANDOVER_CHARS = 500;
-
-// ── Menamai orang ───────────────────────────────────────────────
-
-/**
- * Satu frasa pendek dari deskripsi agent. Deskripsi QwenPaw bisa sepanjang
- * paragraf; yang dibutuhkan direktori cuma "dia mengurus apa".
- */
-export function describeRole(description: string, fallback = "karyawan"): string {
-  const first = description
-    .split("\n")
-    .map((l) => l.replace(DECOR, "").trim())
-    .find((l) => l.length > 0);
-  if (!first) return fallback;
-  const clipped = first.split(/(?<=[.!?])\s/)[0] ?? first;
-  return clipped.length > 72 ? `${clipped.slice(0, 69).trimEnd()}…` : clipped;
-}
 
 /** Cari kolega dari id, atau dari nama yang diketik manusia (`/ke wati`). */
 export function findColleague(
