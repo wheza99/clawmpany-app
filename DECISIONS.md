@@ -5,6 +5,77 @@ baru di atas.
 
 ---
 
+## 2026-07-31 · Iterasi 8 — pembicaraan berpindah karyawan, konteksnya ikut
+
+### Celah yang ditutup
+
+Sampai iterasi 7, bicara dengan karyawan tertentu berarti tahu lebih dulu siapa
+yang mengurus apa, lalu membuka halamannya. Itu membalik beban: pemilik yang
+harus memetakan kantornya sendiri sebelum boleh bertanya. Akibatnya pertanyaan
+berhenti di kepala — persis bentuk friction yang sama dengan halaman kosong,
+cuma pindah tempat.
+
+Sekarang cukup bilang siapa yang dicari (atau tidak usah sama sekali):
+percakapan BERPINDAH ke orang itu, dan dia yang menjawab di giliran yang sama.
+
+### Fakta yang diverifikasi dulu
+
+1. **QwenPaw MENYIARKAN pemanggilan tool secara terstruktur.** Aliran SSE
+   `/api/console/chat` membawa `plugin_call` dan `plugin_call_output` berisi
+   `{call_id, name, arguments}`. Komentar lama di `components/chat/thread.tsx`
+   ("it has no structured tool-call events") keliru dan sudah diperbaiki.
+2. **Tapi tool tidak bisa didaftarkan per-permintaan.** Body chat cuma menerima
+   `{input, session_id, user_id, channel}`; daftar tool sebuah agent hanya dari
+   tool bawaan + client MCP yang terpasang pada agent itu.
+3. **`system_prompt_files` sebuah agent = `["AGENTS.md", "SOUL.md",
+   "PROFILE.md"]`** — jadi menulis direktori kantor ke workspace memang
+   mungkin, dan itu jadi alternatif serius yang akhirnya ditolak (lihat tabel).
+
+### Keputusan
+
+| Keputusan | Alasan |
+|---|---|
+| **Alih lewat satu baris penanda `@alih: <id> \| <konteks>`, bukan tool MCP sungguhan** | Fakta 1+2 di atas: `switch_agent` sebagai tool asli menuntut Clawmpany menghosting server MCP sendiri dan memasangnya ke SETIAP agent di setiap roster — dan server itu harus terjangkau dari paw.wheza.id, artinya fiturnya mati saat app dijalankan lokal. Pelajaran iterasi 5 masih berlaku: yang tidak bisa dijalankan lokal tidak akan pernah benar-benar diuji. |
+| **Direktori kantor dititipkan di pesan PERTAMA tiap sesi, bukan ditulis ke `AGENTS.md`** | Menulis ke workspace berarti menulis ulang N file tiap kali ada yang direkrut atau dipecat, dan tetap basi untuk agent yang dibuat di luar Clawmpany. Preamble per sesi selalu benar tanpa satu pun tulisan ke workspace. Karena cuma sekali di awal, ia tidak pernah jadi pesan terakhir — panel "Pekerjaan terakhir" (yang membaca dua pesan buncit) tetap bersih. |
+| **Yang menerima alih langsung MENJAWAB, bukan cuma menyapa** | Berkas pengalihan berisi tiga hal: kenapa dia dipanggil, transkrip yang sudah berjalan, dan pertanyaan terakhir pemilik. Tanpa yang ketiga, pemilik harus mengetik ulang pertanyaannya — friction yang sama yang mau dihapus, cuma dipindah satu langkah. |
+| **Satu sesi QwenPaw PER KARYAWAN, bukan satu sesi bersama** | Kalau semua berbagi satu id sesi, tiap karyawan membaca percakapan yang ditulis orang lain sebagai riwayatnya sendiri. |
+| **Berkas pengalihan tidak ditampilkan** | Pemilik tidak perlu membaca surat pengantar antar karyawan. Yang tampil cuma blok `alih` — dari siapa, ke siapa, alasannya. |
+| **Maksimal 2 alih per satu giliran pemilik** | Dua karyawan yang sama-sama merasa "ini bukan bidang saya" akan saling melempar sampai kuota habis, dan yang menonton cuma melihat layar berjalan sendiri. |
+| **Balasan yang isinya cuma penanda dibuang dari transkrip** | Blok `alih` sudah mengatakan semuanya; gelembung kosong di atasnya cuma menambah baris. |
+| **Nama pembicara ditempel di tiap balasan** | Begitu lebih dari satu orang menjawab dalam satu transkrip, balasan tanpa nama tidak terbaca. |
+| **`/ke <nama>` memotong satu giliran model** | Kalau pemilik sudah menyebut tujuannya lewat perintah, membakar satu panggilan model cuma untuk memutuskan hal yang sudah diputuskan itu menunggu tanpa guna. |
+| **Server tetap yang memutuskan boleh atau tidak** | Daftar kolega yang dikirim ke browser dan preamble yang dibaca agent disusun dari SATU sumber (`lib/directory.ts`) yang membaca roster yang sama dengan gerbang di `/api/chat`. Agent tidak akan pernah diberi tahu ada kolega yang tidak boleh dituju. |
+
+### Diverifikasi di browser dengan agent produksi
+
+Roster probe (`archylabs`, `sirksa`) dipasang sementara di `SOLO_OFFICE`, lalu
+dikembalikan ke `[]`.
+
+- **"saya ingin bicara dengan sirksa"** → Clawmpany membalas `@alih: sirksa | …`,
+  blok `alih` muncul (dari Clawmpany → ke Sirksa), header + placeholder ikut
+  berganti, dan Sirksa menjawab sendiri: *"Halo, Wheza — saya Sirksa, QA
+  Engineer di sini…"*
+- **`/siapa`** → daftar tiga orang dengan penanda `←` pada yang sedang bicara.
+- **`/ke clawmpany`** → alih balik ke sesi yang SUDAH ada (direktori tidak
+  dikirim ulang). Clawmpany menjawab pertanyaan yang tadi diajukan ke Sirksa
+  tanpa pemilik mengetiknya ulang: *"Tunggu — ini urusan saya, bukan Sirksa…
+  Cara rekrut di sini: kamu tidak perlu mengisi apa-apa."* Itu bukti berkas
+  pengalihan sampai utuh.
+- Tidak ada error di console. `next build` dan `eslint` hijau.
+
+Protokolnya juga diuji langsung ke `paw.wheza.id` dengan preamble yang persis
+dihasilkan `buildDirectory()`: model menaruh penanda di baris pertama dan
+menutup dengan satu kalimat pamit, sesuai instruksi.
+
+### Sisa yang perlu dibereskan
+
+- Sesi probe yang tertinggal di paw.wheza.id: `probe-switch-1`, `probe-switch-2`,
+  `probe-alih-a1` (agent `clawmpany`) dan `probe-alih-b1` (agent `tukang`).
+- Alih baru aktif di `/chat`. Halaman `/agent/[id]` sengaja tetap satu karyawan
+  — itu drill-down ke pekerjaan SATU orang, bukan meja depan.
+
+---
+
 ## 2026-07-31 · Iterasi 7 — layar depan menampilkan HASIL, bukan jumlah
 
 ### Celah yang ditutup

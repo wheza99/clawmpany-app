@@ -17,6 +17,12 @@ export interface ChatStreamOptions {
    * si pemanggil — nilai di sini adalah permintaan, bukan izin.
    */
   agentId?: string;
+  /**
+   * Giliran pertama sesi ini: minta server menempelkan direktori kantor +
+   * aturan mengalihkan di depan pesan. Hanya klien yang tahu apakah sesinya
+   * sudah dipakai, jadi klien yang memberi tahu.
+   */
+  withDirectory?: boolean;
   /** Full visible answer so far (overwritten each delta, never appended). */
   onText?: (fullText: string) => void;
   /** Full reasoning text so far (collapsed "thinking" block). */
@@ -89,7 +95,12 @@ export async function chatStream(
       res = await fetch(CHAT_ENDPOINT, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ message, sessionId, agentId: opts.agentId }),
+        body: JSON.stringify({
+          message,
+          sessionId,
+          agentId: opts.agentId,
+          withDirectory: opts.withDirectory,
+        }),
         signal: ctl.signal,
       });
     } catch {
