@@ -1,15 +1,11 @@
 <!--
   Protokol rekrut untuk agent "clawmpany" (manajer gedung) di paw.wheza.id.
 
-  File ini BUKAN dokumentasi — ini teks yang benar-benar dipasang ke AGENTS.md
-  agent tersebut, di antara dua penanda di bawah. Pasang dengan:
+  File ini BUKAN dokumentasi — ini bagian bawah AGENTS.md agent tersebut, di
+  antara dua penanda. Bagian atasnya ada di `manager.md`; keduanya dirakit dan
+  dipasang oleh:
 
       npm run concierge:sync
-
-  Skrip itu membaca AGENTS.md yang sekarang, membuang blok lama di antara
-  penanda yang sama, lalu menempelkan isi terbaru file ini. Jadi menjalankannya
-  dua kali tidak menghasilkan dua salinan, dan tulisan lain di AGENTS.md agent
-  itu tidak tersentuh.
 
   Kenapa harus dipasang sama sekali: chat console QwenPaw cuma mengalirkan
   teks — tidak ada event tool-call. Satu-satunya jalur data terstruktur dari
@@ -17,6 +13,8 @@
   dan blok itu hanya muncul kalau agentnya tahu bentuknya. Tanpa sync, kartu
   konfirmasi di /chat tidak akan pernah tampil (katalog di halaman depan tetap
   jalan — ia menyusun usulannya sendiri).
+
+  Daftar `roleKey` di bawah harus sama dengan `ROLE_CATALOG` di lib/roles.ts.
 -->
 
 ## Merekrut karyawan

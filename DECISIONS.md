@@ -34,7 +34,11 @@ ketiganya ditulis.
 
 Hal yang sama ternyata berlaku untuk **manajer gedungnya sendiri**: AGENTS.md
 agent `clawmpany` di paw.wheza.id masih 1.230 karakter template bawaan
-berbahasa Mandarin, belum pernah disentuh.
+berbahasa Mandarin, belum pernah disentuh — sementara PROFILE.md dan SOUL.md-nya
+sudah ditulis tangan sejak iterasi 1. Sekarang ditulis (`concierge/manager.md`),
+dan sengaja TIDAK mengulang keduanya: peran dan gaya tinggal di sana, yang di
+AGENTS.md cuma cara kerja — urutan tiap sesi, apa yang boleh diputuskan sendiri,
+apa yang ditanyakan dulu, dan larangan menyebut data kantor penyewa lain.
 
 ### Keputusan
 
@@ -54,12 +58,20 @@ Chat console QwenPaw hanya mengalirkan teks — tidak ada event tool-call (catat
 yang sama sudah ada di `components/chat/thread.tsx` sejak awal). Jadi satu-
 satunya jalur data terstruktur dari manajer gedung ke aplikasi ini adalah satu
 blok ```json di dalam balasan biasa. Blok itu hanya muncul kalau agentnya tahu
-bentuknya: `concierge/hiring-protocol.md` + `npm run concierge:sync` yang
-menempelkannya ke AGENTS.md agent `clawmpany` di antara dua penanda (idempoten,
-tidak menyentuh tulisan lain di file itu).
+bentuknya: `concierge/manager.md` + `concierge/hiring-protocol.md`, dirakit dan
+dipasang oleh `npm run concierge:sync`.
 
 Katalog di halaman depan **tidak** bergantung pada sync itu — ia menyusun
 usulannya sendiri dengan perakit yang sama.
+
+**Bug di skripnya sendiri, ketemu saat sync kedua.** QwenPaw membuang baris
+kosong di ujung file saat menyimpan, jadi yang dikirim tidak pernah sama persis
+dengan yang dibaca kembali (6.147 → 6.146 karakter). Pemeriksaan "sudah
+mutakhir" karena itu tidak pernah kena, dan tiap `sync` berikutnya akan menulis
+ulang — sekaligus **menimpa `.previous-AGENTS.md` dengan salinan dirinya
+sendiri**, menghapus satu-satunya jejak isi asli. Diperbaiki dua lapis:
+perbandingan mengabaikan spasi ujung, dan cadangan hanya ditulis kalau isi yang
+akan ditimpa bukan keluaran skrip ini.
 
 ### Diverifikasi di browser
 
@@ -70,6 +82,19 @@ ketiga file terbuka berisi teks yang benar-benar akan ditulis), usulan dengan
 berisi AGENTS/PROFILE/SOUL hasil perakit, nama perusahaan ikut masuk). Tidak ada
 error console maupun server. Route probe sudah dihapus dan dipastikan 404;
 `/`, `/chat`, `/semua` tetap 200.
+
+### Diverifikasi dengan manajer gedung sungguhan
+
+Setelah sync, `/chat` ditanyai kasus nyata ("toko bahan bangunan, 4 orang,
+keluhan numpuk di WhatsApp"). Manajer gedung membalas dengan blok yang sah,
+aplikasi menukarnya jadi kartu — **Rina**, Customer Service, deskripsi yang
+menyebut WhatsApp — dan kalimat sesudah blok tetap tampil di bawah kartu.
+AGENTS.md yang dia tulis benar-benar tentang toko itu (memilah pesan yang bisa
+dijawab sendiri vs yang naik ke pemilik, mencatat komplain berikut nama barang
+dan tanggal), bukan template.
+
+Sync dijalankan dua kali: yang kedua berhenti di "sudah mutakhir", dan
+`.previous-AGENTS.md` masih berisi template Mandarin aslinya.
 
 **Belum diuji:** `POST /api/hire` sampai tuntas — itu membuat agent sungguhan di
 instance produksi dan menuntut sesi Clerk yang login.

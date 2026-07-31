@@ -1,17 +1,23 @@
-// Pasang protokol rekrut ke AGENTS.md manajer gedung di QwenPaw.
+// Pasang AGENTS.md manajer gedung ke QwenPaw.
 //
 //     npm run concierge:sync            # tulis
 //     npm run concierge:sync -- --dry   # tampilkan hasilnya, jangan tulis
 //
-// KENAPA MENEMPEL, BUKAN MENGGANTI. AGENTS.md agent `clawmpany` ditulis tangan
-// (dia manajer gedung, bukan karyawan hasil rekrut) dan isinya jauh lebih luas
-// daripada urusan rekrut. Skrip ini hanya menguasai satu blok bertanda, membuang
-// versi lamanya, lalu menempelkan yang baru — jadi menjalankannya dua kali tidak
-// menggandakan apa pun, dan tulisan lain di file itu tidak pernah tersentuh.
+// Isinya dirakit dari dua file di concierge/:
+//   manager.md          — cara kerja manajer gedung
+//   hiring-protocol.md  — bentuk JSON usulan rekrut, di antara dua penanda
 //
-// Perubahan ini menyentuh instance produksi. Tanpa --dry ia benar-benar menulis.
+// KENAPA DIRAKIT DI SINI, BUKAN SATU FILE. Protokol rekrut harus tetap sejalan
+// dengan lib/roles.ts dan lib/hire-draft.ts; memisahkannya membuat jelas bagian
+// mana yang ikut berubah saat kode berubah. Penandanya juga dipertahankan
+// supaya sunting manual di QwenPaw pada bagian LAIN tidak terhapus kalau suatu
+// saat skrip ini dikembalikan ke mode tempel.
+//
+// Perubahan ini menyentuh instance produksi. Isi AGENTS.md yang sekarang
+// disalin dulu ke concierge/.previous-AGENTS.md sebelum ditimpa, jadi tidak ada
+// yang hilang tanpa jejak. Tanpa --dry ia benar-benar menulis.
 
-import { readFile } from "node:fs/promises";
+import { readFile, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -36,9 +42,9 @@ if (!base || !token) {
 const headers = { Authorization: `Bearer ${token}`, "X-Agent-Id": agentId };
 const fileUrl = `${base}/api/workspace/files/AGENTS.md`;
 
-/** Isi protokol tanpa komentar HTML pembukanya (itu catatan untuk manusia). */
-async function protocol() {
-  const raw = await readFile(resolve(root, "concierge/hiring-protocol.md"), "utf8");
+/** Isi satu sumber tanpa komentar HTML pembukanya — itu catatan untuk manusia. */
+async function source(name) {
+  const raw = await readFile(resolve(root, "concierge", name), "utf8");
   return raw.replace(/^<!--[\s\S]*?-->\s*/, "").trim();
 }
 
@@ -50,33 +56,42 @@ async function readCurrent() {
   return typeof data?.content === "string" ? data.content : "";
 }
 
-function merge(current, block) {
-  const wrapped = `${BEGIN}\n\n${block}\n\n${END}`;
-  const start = current.indexOf(BEGIN);
-  const end = current.indexOf(END);
-  if (start !== -1 && end > start) {
-    return current.slice(0, start) + wrapped + current.slice(end + END.length);
-  }
-  return current.trim() ? `${current.trimEnd()}\n\n${wrapped}\n` : `${wrapped}\n`;
-}
+const [manager, protocol, current] = await Promise.all([
+  source("manager.md"),
+  source("hiring-protocol.md"),
+  readCurrent(),
+]);
 
-const current = await readCurrent();
-const next = merge(current, await protocol());
+const next = `${manager}\n\n${BEGIN}\n\n${protocol}\n\n${END}\n`;
 
-if (current === next) {
+// QwenPaw membuang baris kosong di ujung saat menyimpan, jadi apa yang dikirim
+// tidak pernah sama persis dengan apa yang dibaca kembali. Membandingkan mentah
+// membuat skrip ini selalu merasa perlu menulis ulang — dan penulisan ulang
+// yang tidak perlu itulah yang akan menimpa salinan cadangan di bawah.
+if (current.trimEnd() === next.trimEnd()) {
   console.log(`AGENTS.md ${agentId} sudah mutakhir — tidak ada yang ditulis.`);
   process.exit(0);
 }
 
 console.log(
   `${agentId} @ ${base}\n` +
-    `  sekarang : ${current.length} karakter${current.includes(BEGIN) ? " (sudah ada blok protokol)" : ""}\n` +
+    `  sekarang : ${current.length} karakter` +
+    `${current.includes(BEGIN) ? " (sudah pernah disinkron)" : " (belum pernah disinkron)"}\n` +
     `  jadi     : ${next.length} karakter`,
 );
 
 if (dry) {
   console.log(`\n--- hasil (tidak ditulis) ---\n${next}`);
   process.exit(0);
+}
+
+// Salinan yang akan ditimpa, supaya keputusan ini bisa ditinjau ulang besok.
+// Hanya isi yang BUKAN keluaran skrip ini yang disalin: kalau tidak, sync kedua
+// akan mengganti satu-satunya jejak isi aslinya dengan salinan dirinya sendiri.
+if (current && !current.includes(BEGIN)) {
+  const backup = resolve(root, "concierge/.previous-AGENTS.md");
+  await writeFile(backup, current, "utf8");
+  console.log(`  salinan  : concierge/.previous-AGENTS.md`);
 }
 
 const res = await fetch(fileUrl, {
