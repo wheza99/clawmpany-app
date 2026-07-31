@@ -8,6 +8,8 @@ import { chatStream, newId, newSessionId, type PawPhase } from "@/lib/paw";
 import { cn } from "@/lib/utils";
 import { APP_VERSION } from "@/lib/version";
 import { MarkdownText } from "@/components/markdown-text";
+import { AgentAvatar } from "@/components/office/agent-avatar";
+import { AgentDialog } from "@/components/office/agent-dialog";
 import { HireDraftCard } from "@/components/office/hire-draft-card";
 import { Elapsed, Spinner } from "@/components/terminal/spinner";
 import {
@@ -97,6 +99,15 @@ export interface ThreadProps {
   agentName?: string;
   /** Nama panggilan penggunanya, SATU KATA (lihat lib/office.ts viewerName). */
   userName?: string;
+  /**
+   * Karyawan kantor ini, jadi nama + fotonya membuka dialog manajemen.
+   *
+   * Manajer gedung TIDAK termasuk: ia sengaja tidak pernah masuk roster mana
+   * pun (lihat lib/qwenpaw.ts), jadi semua rute manajemennya menjawab 404 —
+   * nama yang bisa diklik di sana cuma jalan buntu yang tampak seperti
+   * kerusakan.
+   */
+  manageable?: boolean;
   /** Kalimat pembuka saat transkrip masih kosong. Diabaikan bila `prime`. */
   greeting?: string;
   /**
@@ -112,12 +123,14 @@ export const Thread: FC<ThreadProps> = ({
   agentId,
   agentName,
   userName = "kamu",
+  manageable = false,
   greeting,
   prime = false,
 }) => {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState("");
   const [isRunning, setIsRunning] = useState(false);
+  const [managing, setManaging] = useState(false);
 
   const { setTheme, resolvedTheme } = useTheme();
 
@@ -351,6 +364,9 @@ export const Thread: FC<ThreadProps> = ({
                   message={m}
                   name={speaker}
                   agentId={agentId}
+                  onManage={
+                    manageable && agentId ? () => setManaging(true) : undefined
+                  }
                 />
               ),
             )}
@@ -372,6 +388,18 @@ export const Thread: FC<ThreadProps> = ({
           </div>
         </div>
       </div>
+
+      {/* Dipasang hanya saat terbuka — jadi tiap kali dibuka, isinya dimuat
+          ulang dari nol. Dialog manajemen yang menampilkan keadaan basi lebih
+          berbahaya daripada satu request tambahan: orang membukanya justru
+          untuk memastikan perubahannya benar-benar mendarat. */}
+      {managing && agentId ? (
+        <AgentDialog
+          agentId={agentId}
+          agentName={speaker}
+          onClose={() => setManaging(false)}
+        />
+      ) : null}
     </div>
   );
 };
@@ -422,17 +450,53 @@ const MessageHeader: FC<{
   /** id agent, kalau berbeda dari namanya. */
   sub?: string;
   tone?: "prompt" | "dim";
+  /**
+   * Bila diisi, foto + nama jadi TOMBOL pembuka dialog manajemen — satu-satunya
+   * jalan ke sana dari percakapan.
+   */
+  onManage?: () => void;
   children?: React.ReactNode;
-}> = ({ marker, name, sub, tone = "prompt", children }) => {
+}> = ({ marker, name, sub, tone = "prompt", onManage, children }) => {
   const ink = tone === "dim" ? "text-term-dim" : "text-term-prompt";
+  const label = (
+    <span className={cn("text-[11px] leading-5 font-medium tracking-wide", ink)}>
+      {name}
+    </span>
+  );
   return (
     // Tanpa `gap` di sumbu-x: jarak diatur per elemen, supaya nama benar-benar
     // menempel di tepi kanan kolom gutter dan sejajar dengan badan pesannya.
     <div className="flex flex-wrap items-baseline gap-y-0.5">
       <TermGutter marker={marker} className={cn("text-sm leading-5", ink)} />
-      <span className={cn("text-[11px] leading-5 font-medium tracking-wide", ink)}>
-        {name}
-      </span>
+      {onManage ? (
+        // Fotonya SENGAJA tidak menggantikan penanda di gutter: lebar kolom itu
+        // yang menjaga nama dan badan pesan berdiri di kolom yang sama, dan
+        // kotak 16px di sana akan menggesernya.
+        //
+        // Isyarat "atur" muncul saat disorot, bukan permanen: baris ini
+        // terulang di SETIAP balasan, jadi ajakan yang selalu terlihat menumpuk
+        // jadi kebisingan di transkrip yang panjang.
+        <button
+          type="button"
+          onClick={onManage}
+          title={`Atur ${name}`}
+          className="group focus-visible:ring-ring flex cursor-pointer items-baseline focus-visible:ring-1 focus-visible:outline-none"
+        >
+          <AgentAvatar
+            name={name}
+            className="mr-1.5 size-4 self-center text-[9px] group-hover:border-term-prompt group-focus-visible:border-term-prompt"
+          />
+          {label}
+          <span
+            aria-hidden="true"
+            className="text-term-dim ml-2 text-[10px] leading-5 opacity-0 transition-opacity group-hover:opacity-100 group-focus-visible:opacity-100"
+          >
+            atur ▸
+          </span>
+        </button>
+      ) : (
+        label
+      )}
       {sub && sub !== name ? (
         <span className="text-term-dim ml-2 text-[10px] leading-5">{sub}</span>
       ) : null}
@@ -454,7 +518,9 @@ const AssistantMessage: FC<{
   message: ChatMessage;
   name: string;
   agentId?: string;
-}> = ({ message, name, agentId }) => {
+  /** Kosong = karyawan ini tidak bisa diatur dari sini (lihat ThreadProps). */
+  onManage?: () => void;
+}> = ({ message, name, agentId, onManage }) => {
   // Selagi menalar dan belum satu kata pun ditulis, cuplikan pikirannya JAUH
   // lebih menjelaskan daripada tombol "thinking" yang tertutup. Begitu jawaban
   // mulai mengalir, cuplikan itu berhenti berguna dan tombolnya kembali.
@@ -464,10 +530,11 @@ const AssistantMessage: FC<{
     <div className="animate-fade-in">
       {message.block ? (
         // Balasan slash command tidak datang dari agent mana pun — ia dihitung
-        // di browser ini. Menamainya dengan nama agent akan menyesatkan.
+        // di browser ini. Menamainya dengan nama agent akan menyesatkan, dan
+        // karena itu ia juga tidak membawa foto yang membuka pengaturannya.
         <MessageHeader marker="▸" name="lokal" tone="dim" />
       ) : (
-        <MessageHeader marker="■" name={name} sub={agentId}>
+        <MessageHeader marker="■" name={name} sub={agentId} onManage={onManage}>
           {message.streaming ? (
             <StreamStatus phase={message.phase} startedAt={message.startedAt} />
           ) : null}

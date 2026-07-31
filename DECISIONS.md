@@ -5,6 +5,63 @@ baru di atas.
 
 ---
 
+## 2026-07-31 · Iterasi 10 — karyawan diatur dari tempat kamu menyadarinya
+
+### Celah yang ditutup
+
+Manajemen karyawan sudah lengkap sejak iterasi 4, tapi seluruhnya hidup di
+`/agent/[id]`. Padahal saat yang membuat orang ingin mengubah sesuatu justru
+saat membaca jawaban: "nadanya terlalu kaku", "dia harusnya bisa buka
+WhatsApp". Menyuruh mereka meninggalkan percakapan untuk memperbaikinya berarti
+kehilangan konteks yang memicu perbaikan itu — dan bersamanya, perbaikannya.
+
+Sekarang tiap balasan membawa nama + foto karyawannya, dan fotonya adalah pintu
+ke dialog manajemen: identitas, keahlian, peralatan, jadwal. Ditiru dari
+ClawCity `src/agents/setup-dialog.ts` + `schedule-dialog.ts`, digabung jadi satu
+pintu.
+
+### Keputusan
+
+| Keputusan | Alasan |
+|---|---|
+| **Tab memetakan ke panel yang SUDAH ada, bukan ditulis ulang** | `SchedulePanel`/`EquipmentPanel` cukup diberi kemampuan memuat sendiri saat data awal tidak diberikan. Satu penyunting per hal, dua tempat memasangnya — kalau ditulis ulang, dua tempat itu akan berbeda perilaku dalam sebulan. |
+| **Dialog dipasang ulang tiap dibuka; tab memuat saat dipilih** | Dialog manajemen yang menampilkan keadaan basi lebih berbahaya daripada satu request tambahan — orang membukanya justru untuk memastikan perubahannya mendarat. Tab yang tak pernah dibuka tidak minta apa-apa; penting karena tab peralatan menguji koneksi tiap alat yang menyala. |
+| **Foto profil = kotak berisi inisial** | QwenPaw tidak menyimpan gambar untuk agent dan app ini tidak punya database kedua (rosternya saja menumpang di metadata Clerk). Placeholder yang menunggu fitur unggah yang belum ada lebih buruk daripada wajah yang jujur — dan inisial justru konsisten dengan antarmuka yang seluruhnya monospace. |
+| **Manajer gedung dapat nama + foto, tapi TIDAK bisa diklik** | Ia sengaja tidak pernah masuk roster mana pun, jadi semua rute manajemennya menjawab 404. Foto yang bisa diklik di sana cuma jalan buntu yang terbaca sebagai kerusakan. |
+| **Blok perintah (`/help`, `/dark`) tidak diberi nama karyawan** | Itu keluaran shell yang jalan di browser, bukan ucapan si karyawan. Memberinya wajah membuat dia seolah mengaku melakukan hal yang tidak pernah sampai kepadanya. |
+| **Tidak ada kolom "deskripsi" tersendiri** | `description` milik agent di QwenPaw adalah hasil BACAAN berkas persona, bukan field yang bisa ditulis (`PUT /api/agents/{id}` hanya menerima nama). Kolomnya akan menjanjikan sesuatu yang tak pernah tersimpan; yang benar-benar mengubahnya adalah PROFILE.md. |
+
+### Bug yang ditemukan dan diperbaiki
+
+- **Dialog tidak bisa dibuka ulang setelah ditutup.** Event `close` bawaan
+  `<dialog>` tidak sampai ke React di sini — baik lewat prop `onClose` maupun
+  `addEventListener`. Akibatnya state pemanggil tidak pernah kembali `false`:
+  elemennya tersembunyi tapi tetap terpasang, dan mengklik foto lagi tidak
+  membuka apa-apa sampai halaman dimuat ulang. Sekarang ✕ / latar / Esc
+  semuanya memanggil `onClose` lewat handler React biasa, dan Esc di-`preventDefault`
+  supaya perilaku bawaan tidak menyelinap masuk lagi.
+- **Kegagalan memuat identitas bocor ke semua tab**, menempel di atas panel yang
+  memuat sendiri dengan baik dan menabrak label bingkainya. Sekarang hanya
+  tampil di tabnya sendiri.
+- **Header menampilkan "memuat…" selamanya** untuk karyawan yang gagal dibaca.
+
+### Diverifikasi
+
+- **Keahlian (baru) diuji end-to-end di paw.wheza.id** pada agent sekali-pakai
+  yang dibuat dan dihapus lagi: create → list → disable → enable → ganti nama
+  lewat `source_name` → delete, semuanya 200, emoji + deskripsi terbaca benar.
+  Payload-nya dirakit dengan Node memakai fungsi yang sama seperti produksi —
+  bukan tiruan. Percobaan pertama memakai Python gagal 400: `json.dumps`
+  meng-escape emoji jadi pasangan surrogate `📊`, dan YAML menolaknya
+  sebagai escape Unicode tidak sah. `JSON.stringify` di JS menulis emojinya apa
+  adanya — itulah yang diterima, dan itulah sebabnya uji harus memakai runtime
+  yang sama dengan produksinya.
+- **Dialog dijalankan di browser**: buka → tutup (✕ / Esc / latar) → buka lagi,
+  ketiganya benar; pergantian tab, tema terang & gelap, dan jalur 404 (agent di
+  luar roster) menampilkan kalimat yang jujur, bukan panel kosong.
+
+---
+
 ## 2026-07-31 · Iterasi 9 — karyawannya dibaca dulu, baru dibuat
 
 ### Celah yang ditutup

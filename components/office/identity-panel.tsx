@@ -8,32 +8,47 @@ import { cn } from "@/lib/utils";
 
 /**
  * Identitas karyawan: nama, kontrak kerja (PROFILE.md), cara membawa diri
- * (SOUL.md) — dan pintu keluar.
+ * (SOUL.md), kapabilitas (AGENTS.md) — dan pintu keluar.
  *
  * Penyunting ini ada karena mencegah kursi kosong saja tidak cukup. Instance
  * ini sudah telanjur berisi puluhan agent yang direkrut lewat alur lama dan
  * tidak pernah diberi identitas; tanpa cara memperbaikinya, satu-satunya jalan
  * adalah memecat lalu merekrut ulang dari nol — dan orang tidak akan melakukan
  * itu, mereka akan membiarkannya.
+ *
+ * TIDAK ADA kolom "deskripsi" tersendiri, dan itu disengaja. `description`
+ * milik agent di QwenPaw adalah hasil BACAAN berkas-berkas ini, bukan field
+ * yang bisa ditulis (`PUT /api/agents/{id}` hanya menerima nama). Menyediakan
+ * kolomnya akan menjanjikan sesuatu yang tidak akan pernah tersimpan —
+ * mengubah PROFILE.md di bawah inilah yang benar-benar mengubah deskripsinya.
  */
 export function IdentityPanel({
   agentId,
   name,
   profile,
   soul,
+  agents,
   configured,
+  defaultOpen,
+  onFired,
 }: {
   agentId: string;
   name: string;
   profile: string;
   soul: string;
+  agents: string;
   configured: boolean;
+  /** Dialog manajemen membukanya langsung — di sana tidak ada apa pun lain. */
+  defaultOpen?: boolean;
+  /** Dipanggil sesaat sebelum pindah halaman, supaya dialog bisa menutup diri. */
+  onFired?: () => void;
 }) {
   const router = useRouter();
-  const [open, setOpen] = useState(!configured);
+  const [open, setOpen] = useState(defaultOpen || !configured);
   const [draftName, setDraftName] = useState(name);
   const [draftProfile, setDraftProfile] = useState(profile);
   const [draftSoul, setDraftSoul] = useState(soul);
+  const [draftAgents, setDraftAgents] = useState(agents);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
@@ -43,7 +58,10 @@ export function IdentityPanel({
 
   const base = `/api/agents/${encodeURIComponent(agentId)}`;
   const dirty =
-    draftName !== name || draftProfile !== profile || draftSoul !== soul;
+    draftName !== name ||
+    draftProfile !== profile ||
+    draftSoul !== soul ||
+    draftAgents !== agents;
 
   async function save() {
     setBusy(true);
@@ -57,6 +75,7 @@ export function IdentityPanel({
           name: draftName !== name ? draftName : undefined,
           profile: draftProfile !== profile ? draftProfile : undefined,
           soul: draftSoul !== soul ? draftSoul : undefined,
+          agents: draftAgents !== agents ? draftAgents : undefined,
         }),
       });
       const data = (await res.json()) as { error?: string };
@@ -80,6 +99,9 @@ export function IdentityPanel({
       );
       const data = (await res.json()) as { error?: string };
       if (!res.ok) throw new Error(data.error || `Gagal (${res.status}).`);
+      // Dialog ditutup DULU: kalau tidak, ia tetap menutupi layar sementara
+      // halaman di belakangnya sudah pindah ke kantor.
+      onFired?.();
       router.push("/");
       router.refresh();
     } catch (e) {
@@ -136,6 +158,19 @@ export function IdentityPanel({
             />
           </Field>
 
+          <Field label="Kapabilitas — aturan kerja yang selalu berlaku">
+            <textarea
+              value={draftAgents}
+              onChange={(e) => setDraftAgents(e.target.value)}
+              rows={8}
+              className="border-border focus:border-term-prompt w-full resize-y border bg-transparent px-2 py-1 font-mono text-[11px] outline-none"
+            />
+            <p className="text-term-dim mt-1 text-[10px]">
+              Berbeda dari keahlian: yang di sini selalu dibaca, keahlian hanya
+              dipanggil saat pemicunya cocok.
+            </p>
+          </Field>
+
           {error ? <p className="text-term-warn text-xs">{error}</p> : null}
           {saved && !dirty ? (
             <p className="text-term-prompt text-xs">
@@ -156,13 +191,18 @@ export function IdentityPanel({
             >
               {busy ? "Menyimpan…" : "Simpan"}
             </button>
-            <button
-              type="button"
-              onClick={() => setOpen(false)}
-              className="border-border text-term-dim hover:text-foreground cursor-pointer border px-3 py-1 text-xs transition-colors"
-            >
-              Tutup
-            </button>
+            {/* Di dialog manajemen penyunting ini SATU-SATUNYA isi tabnya, jadi
+                menciutkannya cuma menyisakan tautan yang membuka kembali hal
+                yang sama. Tombolnya hanya masuk akal di halaman karyawan. */}
+            {defaultOpen ? null : (
+              <button
+                type="button"
+                onClick={() => setOpen(false)}
+                className="border-border text-term-dim hover:text-foreground cursor-pointer border px-3 py-1 text-xs transition-colors"
+              >
+                Tutup
+              </button>
+            )}
 
             <button
               type="button"
