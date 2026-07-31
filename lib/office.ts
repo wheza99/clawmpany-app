@@ -83,7 +83,7 @@ export async function currentOffice(): Promise<Office> {
   const org = await client.organizations.getOrganization({ organizationId: orgId });
   return {
     orgId,
-    name: org.name || orgSlug || "Kantor",
+    name: org.name || orgSlug || "Office",
     roster: readRoster(org.privateMetadata),
     userId,
     writable: true,
@@ -92,7 +92,7 @@ export async function currentOffice(): Promise<Office> {
 
 function personalName(firstName: string | null, username: string | null): string {
   const who = firstName || username;
-  return who ? `Kantor ${who}` : "Kantor Pribadi";
+  return who ? `${who}'s Office` : "Personal Office";
 }
 
 /**
@@ -106,15 +106,15 @@ function personalName(firstName: string | null, username: string | null): string
  * biaya itu di halaman yang tidak menampilkan nama siapa pun.
  */
 export async function viewerName(): Promise<string> {
-  if (!authEnabled()) return "kamu";
+  if (!authEnabled()) return "you";
   const user = await currentUser().catch(() => null);
-  if (!user) return "kamu";
+  if (!user) return "you";
   const raw =
     user.firstName ||
     user.username ||
     user.primaryEmailAddress?.emailAddress.split("@")[0] ||
     "";
-  return raw.trim().split(/\s+/)[0] || "kamu";
+  return raw.trim().split(/\s+/)[0] || "you";
 }
 
 /**
@@ -168,7 +168,7 @@ export async function allOffices(): Promise<Office[]> {
  */
 export async function saveRoster(office: Office, roster: string[]): Promise<void> {
   if (!office.writable || !office.userId) {
-    throw new Error("Kantor ini hanya bisa dibaca — masuk dulu.");
+    throw new Error("This office is read-only — sign in first.");
   }
   const unique = [...new Set(roster)];
   const client = await clerkClient();

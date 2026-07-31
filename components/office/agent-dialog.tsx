@@ -27,10 +27,10 @@ import { cn } from "@/lib/utils";
  */
 
 const TABS = [
-  { key: "identitas", label: "Identitas" },
-  { key: "keahlian", label: "Keahlian" },
-  { key: "peralatan", label: "Peralatan" },
-  { key: "jadwal", label: "Jadwal" },
+  { key: "identity", label: "Identity" },
+  { key: "skills", label: "Skills" },
+  { key: "equipment", label: "Equipment" },
+  { key: "schedule", label: "Schedule" },
 ] as const;
 
 type TabKey = (typeof TABS)[number]["key"];
@@ -55,7 +55,7 @@ export function AgentDialog({
   onClose: () => void;
 }) {
   const ref = useRef<HTMLDialogElement>(null);
-  const [tab, setTab] = useState<TabKey>("identitas");
+  const [tab, setTab] = useState<TabKey>("identity");
   const [identity, setIdentity] = useState<Identity | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -77,10 +77,10 @@ export function AgentDialog({
         const res = await fetch(`/api/agents/${encodeURIComponent(agentId)}`);
         const data = (await res.json()) as Identity & { error?: string };
         if (!alive) return;
-        if (!res.ok) throw new Error(data.error || `Gagal (${res.status}).`);
+        if (!res.ok) throw new Error(data.error || `Failed (${res.status}).`);
         setIdentity(data);
       } catch (e) {
-        if (alive) setError(e instanceof Error ? e.message : "Gagal membaca karyawan.");
+        if (alive) setError(e instanceof Error ? e.message : "Could not read this employee.");
       }
     })();
     return () => {
@@ -124,7 +124,7 @@ export function AgentDialog({
           close();
         }
       }}
-      aria-label={`Atur ${name}`}
+      aria-label={`Manage ${name}`}
       className={cn(
         "bg-background text-foreground border-border m-auto border p-0",
         "max-h-[86svh] w-[min(46rem,94vw)] overflow-hidden",
@@ -140,16 +140,16 @@ export function AgentDialog({
                 karyawan yang gagal dibaca — atau yang belum memilih model. */}
             <p className="text-term-dim truncate text-[11px]">
               {identity
-                ? (identity.model ?? "model belum dipilih")
+                ? (identity.model ?? "no model chosen")
                 : error
-                  ? "gagal dibaca"
-                  : "memuat…"}
+                  ? "could not be read"
+                  : "loading…"}
             </p>
           </div>
           <button
             type="button"
             onClick={close}
-            aria-label="Tutup"
+            aria-label="Close"
             className="text-term-dim hover:text-term-warn ml-auto cursor-pointer px-1 text-sm transition-colors"
           >
             ✕
@@ -180,7 +180,7 @@ export function AgentDialog({
               tampil di tabnya. Ditampilkan di semua tab, ia menempel di atas
               panel yang memuat sendiri dengan baik — dan menuduh mereka gagal
               atas sesuatu yang bahkan tidak mereka minta. */}
-          {tab === "identitas" ? (
+          {tab === "identity" ? (
             <>
               {error ? <p className="text-term-warn mb-3 text-xs">{error}</p> : null}
               {identity ? (
@@ -198,7 +198,7 @@ export function AgentDialog({
                   onFired={close}
                 />
               ) : error ? null : (
-                <p className="text-term-dim text-xs">Membaca identitas…</p>
+                <p className="text-term-dim text-xs">Reading identity…</p>
               )}
             </>
           ) : null}
@@ -206,9 +206,9 @@ export function AgentDialog({
           {/* Tab yang belum pernah dipilih tidak dipasang, jadi tidak ada
               request untuk hal yang tidak dilihat siapa pun — penting di sini
               karena peralatan menguji koneksi tiap alat yang menyala. */}
-          {tab === "keahlian" ? <SkillsPanel agentId={agentId} /> : null}
-          {tab === "peralatan" ? <EquipmentPanel agentId={agentId} /> : null}
-          {tab === "jadwal" ? <SchedulePanel agentId={agentId} /> : null}
+          {tab === "skills" ? <SkillsPanel agentId={agentId} /> : null}
+          {tab === "equipment" ? <EquipmentPanel agentId={agentId} /> : null}
+          {tab === "schedule" ? <SchedulePanel agentId={agentId} /> : null}
         </div>
       </div>
     </dialog>

@@ -27,10 +27,10 @@ async function guard(params: Params["params"]) {
   const { id } = await params;
   const office = await currentOffice();
   if (!office.roster.includes(id)) {
-    return { error: NextResponse.json({ error: "Tidak ditemukan." }, { status: 404 }) };
+    return { error: NextResponse.json({ error: "Not found." }, { status: 404 }) };
   }
   if (!office.writable) {
-    return { error: NextResponse.json({ error: "Masuk dulu." }, { status: 401 }) };
+    return { error: NextResponse.json({ error: "Sign in first." }, { status: 401 }) };
   }
   return { agentId: id };
 }
@@ -66,7 +66,7 @@ export async function GET(_req: Request, { params }: Params) {
     );
     return NextResponse.json({ jobs: rows });
   } catch (e) {
-    return failure(e, "Gagal membaca jadwal.");
+    return failure(e, "Could not read schedules.");
   }
 }
 
@@ -94,7 +94,7 @@ export async function POST(req: Request, { params }: Params) {
   }
   if (!instruction) {
     return NextResponse.json(
-      { error: "Tulis instruksinya — jadwal tanpa instruksi tidak mengerjakan apa pun." },
+      { error: "Write the instruction — a schedule without one does nothing." },
       { status: 400 },
     );
   }
@@ -108,7 +108,7 @@ export async function POST(req: Request, { params }: Params) {
     });
     return NextResponse.json({ id: created.id ?? null });
   } catch (e) {
-    return failure(e, "Gagal membuat jadwal.");
+    return failure(e, "Could not create the schedule.");
   }
 }
 
@@ -149,7 +149,7 @@ export async function PUT(req: Request, { params }: Params) {
     });
     return NextResponse.json({ jobId });
   } catch (e) {
-    return failure(e, "Gagal mengubah jadwal.");
+    return failure(e, "Could not change the schedule.");
   }
 }
 
@@ -164,6 +164,6 @@ export async function DELETE(req: Request, { params }: Params) {
     await deleteCronJob(g.agentId, jobId);
     return NextResponse.json({ jobId });
   } catch (e) {
-    return failure(e, "Gagal menghapus jadwal.");
+    return failure(e, "Could not delete the schedule.");
   }
 }

@@ -142,12 +142,12 @@ export async function chatStream(
         signal: ctl.signal,
       });
     } catch {
-      if (idleFired) throw new Error("paw.wheza.id tidak merespons (timeout).");
-      throw new Error("Tidak bisa menghubungi paw.wheza.id.");
+      if (idleFired) throw new Error("paw.wheza.id is not responding (timeout).");
+      throw new Error("Could not reach paw.wheza.id.");
     }
 
     if (!res.ok) throw new Error(await describeHttpError(res));
-    if (!res.body) throw new Error("paw.wheza.id tidak mengirim aliran balasan.");
+    if (!res.body) throw new Error("paw.wheza.id sent no response stream.");
     setPhase("waiting");
 
     const kindOf = new Map<string, BlockKind>();
@@ -249,7 +249,7 @@ export async function chatStream(
     if (failure) throw new Error(failure);
 
     const out = (finalText ?? join("message")).trim();
-    if (!out) throw new Error("paw.wheza.id membalas tanpa teks.");
+    if (!out) throw new Error("paw.wheza.id replied with no text.");
     opts.onText?.(out);
     if (join("reasoning").trim()) opts.onReasoning?.(join("reasoning").trim());
     return out;
@@ -271,9 +271,9 @@ async function describeHttpError(res: Response): Promise<string> {
     /* not JSON — fall through to a status-based message */
   }
   if (res.status === 401 || res.status === 403)
-    return "Belum terautentikasi — periksa PAW_AUTH_TOKEN di server.";
-  if (res.status === 404) return "Endpoint tidak tersedia di paw.wheza.id.";
-  if (res.status >= 500) return "paw.wheza.id sedang tidak bisa dihubungi.";
+    return "Not authenticated — check PAW_AUTH_TOKEN on the server.";
+  if (res.status === 404) return "That endpoint does not exist on paw.wheza.id.";
+  if (res.status >= 500) return "paw.wheza.id cannot be reached right now.";
   return `paw.wheza.id membalas ${res.status}.`;
 }
 

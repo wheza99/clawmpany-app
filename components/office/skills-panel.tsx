@@ -63,11 +63,11 @@ export function SkillsPanel({
     try {
       const res = await fetch(base);
       const data = (await res.json()) as { skills?: Skill[]; error?: string };
-      if (!res.ok) throw new Error(data.error || `Gagal memuat (${res.status}).`);
+      if (!res.ok) throw new Error(data.error || `Could not load (${res.status}).`);
       setSkills(data.skills ?? []);
       setError(null);
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Gagal memuat keahlian.");
+      setError(e instanceof Error ? e.message : "Could not load skills.");
     } finally {
       // Dimatikan di sini, bukan di effect: pemuatan pertama dan tiap muat
       // ulang sesudah aksi lewat jalur yang sama, jadi keterangan "Membaca…"
@@ -89,11 +89,11 @@ export function SkillsPanel({
     try {
       const res = await run();
       const data = (await res.json()) as { error?: string };
-      if (!res.ok) throw new Error(data.error || `Gagal (${res.status}).`);
+      if (!res.ok) throw new Error(data.error || `Failed (${res.status}).`);
       await load();
       return true;
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Gagal.");
+      setError(e instanceof Error ? e.message : "Failed.");
       return false;
     } finally {
       setBusy(null);
@@ -162,12 +162,12 @@ export function SkillsPanel({
       {error ? <p className="text-term-warn mb-2 text-xs">{error}</p> : null}
 
       {loading ? (
-        <p className="text-term-dim text-xs">Membaca keahlian…</p>
+        <p className="text-term-dim text-xs">Reading skills…</p>
       ) : skills.length === 0 ? (
         <p className="text-term-dim mb-3 text-xs">
-          Belum ada. Keahlian adalah prosedur yang dia panggil sendiri saat
-          situasinya cocok — tanpa itu, tiap pekerjaan berulang harus kamu
-          jelaskan ulang dari awal.
+          None yet. A skill is a procedure they reach for on their own when the
+          situation fits — without one, every repeating job has to be explained
+          from scratch each time.
         </p>
       ) : (
         <ul className="divide-border mb-3 divide-y">
@@ -188,7 +188,7 @@ export function SkillsPanel({
               </div>
 
               <p className="text-term-dim mt-0.5 text-[11px]">
-                {s.description || "Tanpa pemicu — dia tidak akan tahu kapan memakainya."}
+                {s.description || "No trigger — they will never know when to use it."}
               </p>
 
               {editing === s.name ? (
@@ -201,7 +201,7 @@ export function SkillsPanel({
                 />
               ) : (
                 <div className="mt-1.5 flex flex-wrap gap-2">
-                  <Mini onClick={() => startEdit(s)}>Ubah</Mini>
+                  <Mini onClick={() => startEdit(s)}>Edit</Mini>
                   <Mini
                     busy={busy === `toggle:${s.name}`}
                     onClick={() =>
@@ -214,7 +214,7 @@ export function SkillsPanel({
                       )
                     }
                   >
-                    {s.enabled ? "Matikan" : "Nyalakan"}
+                    {s.enabled ? "Turn off" : "Turn on"}
                   </Mini>
                   <Mini
                     tone="warn"
@@ -250,7 +250,7 @@ export function SkillsPanel({
           />
         </div>
       ) : loading ? null : (
-        <Mini onClick={startAdd}>+ Tambah keahlian</Mini>
+        <Mini onClick={startAdd}>+ Add skill</Mini>
       )}
     </TermBlock>
   );
@@ -292,16 +292,16 @@ function Editor({
         </Field>
       </div>
 
-      <Field label="Kapan dipakai — ini pemicunya">
+      <Field label="When to use it — this is the trigger">
         <textarea
           value={draft.description}
           onChange={(e) => setDraft({ ...draft, description: e.target.value })}
           rows={2}
-          placeholder="Dipakai saat menyusun laporan penjualan bulanan, atau saat diminta membandingkan omzet antar bulan."
+          placeholder="Used when writing the monthly sales report, or when asked to compare revenue across months."
           className="border-border focus:border-term-prompt w-full resize-y border bg-transparent px-2 py-1 text-sm outline-none"
         />
         <p className="text-term-dim mt-1 text-[10px]">
-          Kalimat inilah yang dia baca untuk memutuskan memanggil keahlian ini.
+          This sentence is what they read to decide whether to reach for this skill.
           Sebutkan situasinya, bukan cuma topiknya.
         </p>
       </Field>
@@ -311,7 +311,7 @@ function Editor({
           value={draft.content}
           onChange={(e) => setDraft({ ...draft, content: e.target.value })}
           rows={10}
-          placeholder={"## Langkah\n\n1. Ambil data penjualan bulan berjalan.\n2. Bandingkan dengan bulan lalu.\n3. Tulis tiga angka yang paling berubah, beserta dugaan sebabnya."}
+          placeholder={"## Steps\n\n1. Pull this month's sales figures.\n2. Compare them with last month.\n3. Write the three numbers that moved most, and why you think they did."}
           className="border-border focus:border-term-prompt w-full resize-y border bg-transparent px-2 py-1 font-mono text-[11px] outline-none"
         />
       </Field>

@@ -68,12 +68,12 @@ export function EquipmentPanel({
         catalog?: UtilityOffer[];
         error?: string;
       };
-      if (!res.ok) throw new Error(data.error || `Gagal memuat (${res.status}).`);
+      if (!res.ok) throw new Error(data.error || `Could not load (${res.status}).`);
       setInstalled(data.installed ?? []);
       setCatalog(data.catalog ?? []);
       setError(null);
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Gagal memuat peralatan.");
+      setError(e instanceof Error ? e.message : "Could not load equipment.");
     } finally {
       // Dimatikan di sini, bukan di effect: pemuatan pertama dan tiap muat
       // ulang sesudah aksi lewat jalur yang sama, jadi keterangan "Membaca…"
@@ -98,10 +98,10 @@ export function EquipmentPanel({
     try {
       const res = await run();
       const data = (await res.json()) as { error?: string };
-      if (!res.ok) throw new Error(data.error || `Gagal (${res.status}).`);
+      if (!res.ok) throw new Error(data.error || `Failed (${res.status}).`);
       await load();
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Gagal.");
+      setError(e instanceof Error ? e.message : "Failed.");
     } finally {
       setBusy(null);
     }
@@ -116,12 +116,12 @@ export function EquipmentPanel({
 
       {loading ? (
         <p className="text-term-dim text-xs">
-          Membaca peralatan dan menguji sambungannya…
+          Reading equipment and testing each connection…
         </p>
       ) : installed.length === 0 ? (
         <p className="text-term-dim mb-3 text-xs">
-          Belum ada. Tanpa peralatan, dia hanya bisa menalar dari apa yang kamu
-          ketik — tidak bisa menyentuh data sungguhan.
+          None yet. Without equipment they can only reason from what you type —
+          they cannot touch real data.
         </p>
       ) : (
         <ul className="divide-border mb-3 divide-y">
@@ -161,7 +161,7 @@ export function EquipmentPanel({
                     )
                   }
                 >
-                  {s.enabled ? "Matikan" : "Nyalakan"}
+                  {s.enabled ? "Turn off" : "Turn on"}
                 </MiniButton>
                 <MiniButton
                   tone="warn"
@@ -203,7 +203,7 @@ export function EquipmentPanel({
                     </span>
                     {!u.ready ? (
                       <span className="text-term-warn ml-2 text-[10px] tracking-wider uppercase">
-                        belum siap
+                        not ready
                       </span>
                     ) : null}
                   </div>
@@ -243,13 +243,13 @@ export function EquipmentPanel({
                       </MiniButton>
                     ) : (
                       <p className="text-term-dim mt-2 text-[11px]">
-                        Server belum punya{" "}
+                        The server is missing{" "}
                         {u.missing.map((m) => (
                           <code key={m} className="text-term-warn">
                             {m}{" "}
                           </code>
                         ))}
-                        — isi dulu di Coolify.
+                        — set it in Coolify first.
                       </p>
                     )}
                   </div>
@@ -267,7 +267,7 @@ function ProbeTag({ enabled, probe }: { enabled: boolean; probe: Probe | null })
   if (!enabled) return <span className="text-term-dim">dimatikan</span>;
   if (!probe) return <span className="text-term-dim">—</span>;
   if (probe.ok) return <span className="text-term-prompt">tersambung</span>;
-  return <span className="text-term-warn">tidak tersambung</span>;
+  return <span className="text-term-warn">not connected</span>;
 }
 
 function MiniButton({

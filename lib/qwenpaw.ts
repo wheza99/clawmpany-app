@@ -72,13 +72,13 @@ async function get<T>(
       cache: "no-store",
     });
   } catch {
-    throw new QwenPawError(`Tidak bisa menghubungi ${hostname()}.`);
+    throw new QwenPawError(`Could not reach ${hostname()}.`);
   }
   if (res.status === 404 && opts.soft404) return null;
   if (!res.ok) {
     const body = await res.text().catch(() => "");
     throw new QwenPawError(
-      `${hostname()} membalas ${res.status} untuk ${path}: ${body.slice(0, 160)}`,
+      `${hostname()} replied ${res.status} for ${path}: ${body.slice(0, 160)}`,
       res.status,
     );
   }
@@ -102,7 +102,7 @@ async function send<T>(
       signal: AbortSignal.timeout(TIMEOUT_MS),
     });
   } catch {
-    throw new QwenPawError(`Tidak bisa menghubungi ${hostname()}.`);
+    throw new QwenPawError(`Could not reach ${hostname()}.`);
   }
   if (!res.ok) {
     const text = await res.text().catch(() => "");
@@ -412,7 +412,7 @@ export async function updateCronJob(
 ): Promise<void> {
   const jobs = await listCronJobs(agentId);
   const existing = jobs.find((j) => j.id === jobId);
-  if (!existing) throw new QwenPawError("Jadwal tidak ditemukan.", 404);
+  if (!existing) throw new QwenPawError("Schedule not found.", 404);
   await send(
     "PUT",
     `/api/agents/${encodeURIComponent(agentId)}/cron/jobs/${encodeURIComponent(jobId)}`,
@@ -467,14 +467,14 @@ export async function readJobOutput(
 ): Promise<{ sessionName: string; messages: ChatMessage[]; note?: string }> {
   const jobs = await listCronJobs(agentId);
   const job = jobs.find((j) => j.id === jobId);
-  if (!job) throw new QwenPawError("Jadwal tidak ditemukan.", 404);
+  if (!job) throw new QwenPawError("Schedule not found.", 404);
 
   const targetSessionId = job.dispatch?.target?.session_id;
   if (!targetSessionId) {
     return {
       sessionName: job.name,
       messages: [],
-      note: "Jadwal ini tidak menulis hasil ke sesi mana pun.",
+      note: "This schedule writes its result to no session.",
     };
   }
 
@@ -486,7 +486,7 @@ export async function readJobOutput(
     return {
       sessionName: targetSessionId,
       messages: [],
-      note: "Belum ada hasil. Tekan Jalankan sekarang, atau tunggu jadwalnya tiba.",
+      note: "No result yet. Press Run now, or wait for the schedule to come round.",
     };
   }
 
@@ -563,7 +563,7 @@ export async function setMcpEnabled(
   enabled: boolean,
 ): Promise<void> {
   const current = (await listMcpServers(agentId)).find((s) => s.key === key);
-  if (!current) throw new QwenPawError(`Peralatan "${key}" tidak terpasang.`, 404);
+  if (!current) throw new QwenPawError(`Equipment "${key}" is not fitted.`, 404);
   if (current.enabled === enabled) return;
   await send("PATCH", `/api/mcp/toggle/${encodeURIComponent(key)}`, undefined, agentId);
 }
@@ -603,14 +603,14 @@ export async function probeMcpTools(
       )
       .filter((n): n is string => Boolean(n));
     if (tools.length === 0) {
-      return { ok: false, tools: [], message: "Tersambung tapi tidak ada tool — peralatan ini sedang dimatikan." };
+      return { ok: false, tools: [], message: "Connected but no tools — this equipment is switched off." };
     }
     return { ok: true, tools };
   } catch (e) {
     return {
       ok: false,
       tools: [],
-      message: e instanceof Error ? e.message : "Tidak bisa menghubungi server peralatan.",
+      message: e instanceof Error ? e.message : "Could not reach the equipment server.",
     };
   }
 }

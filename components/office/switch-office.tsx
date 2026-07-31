@@ -34,10 +34,10 @@ export function SwitchOffice({ orgId, name }: { orgId: string | null; name: stri
       type="button"
       onClick={go}
       disabled={!isLoaded || busy}
-      aria-label={`Buka ${name}`}
+      aria-label={`Open ${name}`}
       className="text-term-dim hover:text-term-prompt cursor-pointer transition-colors disabled:cursor-wait"
     >
-      {busy ? "membuka…" : "buka →"}
+      {busy ? "opening…" : "open →"}
     </button>
   );
 }

@@ -33,10 +33,10 @@ async function guard(params: Params["params"]) {
   const { id } = await params;
   const office = await currentOffice();
   if (!office.roster.includes(id)) {
-    return { error: NextResponse.json({ error: "Tidak ditemukan." }, { status: 404 }) };
+    return { error: NextResponse.json({ error: "Not found." }, { status: 404 }) };
   }
   if (!office.writable) {
-    return { error: NextResponse.json({ error: "Masuk dulu." }, { status: 401 }) };
+    return { error: NextResponse.json({ error: "Sign in first." }, { status: 401 }) };
   }
   return { agentId: id, office };
 }
@@ -70,7 +70,7 @@ export async function GET(_req: Request, { params }: Params) {
       configured: !looksUnconfigured(found?.description ?? ""),
     });
   } catch (e) {
-    return failure(e, "Gagal membaca identitas.");
+    return failure(e, "Could not read the identity.");
   }
 }
 
@@ -97,7 +97,7 @@ export async function PATCH(req: Request, { params }: Params) {
 
   if (name !== undefined && (!name || name.length > 40)) {
     return NextResponse.json(
-      { error: "Nama wajib diisi, maksimal 40 karakter." },
+      { error: "A name is required, 40 characters at most." },
       { status: 400 },
     );
   }
@@ -105,7 +105,7 @@ export async function PATCH(req: Request, { params }: Params) {
   // dibuat alur rekrut: tidak ada karyawan tanpa identitas.
   if (profile !== undefined && !profile.trim()) {
     return NextResponse.json(
-      { error: "Identitas tidak boleh kosong — itu yang membuat dia tahu harus mengerjakan apa." },
+      { error: "An identity cannot be empty — it is what tells them what to do." },
       { status: 400 },
     );
   }
@@ -117,7 +117,7 @@ export async function PATCH(req: Request, { params }: Params) {
     if (agents !== undefined) await writeWorkspaceFile(g.agentId, "AGENTS.md", agents);
     return NextResponse.json({ ok: true });
   } catch (e) {
-    return failure(e, "Gagal menyimpan.");
+    return failure(e, "Could not save.");
   }
 }
 
@@ -131,7 +131,7 @@ export async function DELETE(req: Request, { params }: Params) {
   const confirm = new URL(req.url).searchParams.get("confirm")?.trim() ?? "";
   if (!confirm) {
     return NextResponse.json(
-      { error: "Ketik nama karyawannya untuk mengonfirmasi." },
+      { error: "Type the employee's name to confirm." },
       { status: 400 },
     );
   }
@@ -139,7 +139,7 @@ export async function DELETE(req: Request, { params }: Params) {
   try {
     await deleteAgent(g.agentId);
   } catch (e) {
-    return failure(e, "Gagal menghapus karyawan di QwenPaw.");
+    return failure(e, "Could not delete the employee in QwenPaw.");
   }
 
   // Roster dibersihkan SETELAH agentnya benar-benar hilang. Urutan sebaliknya
@@ -155,8 +155,8 @@ export async function DELETE(req: Request, { params }: Params) {
       {
         error:
           e instanceof Error
-            ? `Karyawan sudah dihapus, tapi daftar kantor gagal diperbarui: ${e.message}`
-            : "Karyawan sudah dihapus, tapi daftar kantor gagal diperbarui.",
+            ? `The employee was deleted, but the office roster could not be updated: ${e.message}`
+            : "The employee was deleted, but the office roster could not be updated.",
       },
       { status: 500 },
     );

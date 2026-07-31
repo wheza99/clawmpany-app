@@ -19,10 +19,10 @@ async function guard(params: Params["params"]) {
   const { id, jobId } = await params;
   const office = await currentOffice();
   if (!office.roster.includes(id)) {
-    return { error: NextResponse.json({ error: "Tidak ditemukan." }, { status: 404 }) };
+    return { error: NextResponse.json({ error: "Not found." }, { status: 404 }) };
   }
   if (!office.writable) {
-    return { error: NextResponse.json({ error: "Masuk dulu." }, { status: 401 }) };
+    return { error: NextResponse.json({ error: "Sign in first." }, { status: 401 }) };
   }
   return { agentId: id, jobId };
 }
@@ -45,7 +45,7 @@ export async function GET(_req: Request, { params }: Params) {
     ]);
     return NextResponse.json({ ...output, history: history.slice(0, 8) });
   } catch (e) {
-    return failure(e, "Gagal membaca hasil jadwal.");
+    return failure(e, "Could not read the schedule result.");
   }
 }
 
@@ -60,6 +60,6 @@ export async function POST(_req: Request, { params }: Params) {
     // hasilnya sendiri.
     return NextResponse.json({ started: true });
   } catch (e) {
-    return failure(e, "Gagal menjalankan jadwal.");
+    return failure(e, "Could not run the schedule.");
   }
 }

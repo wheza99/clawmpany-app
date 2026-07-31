@@ -79,11 +79,11 @@ export function IdentityPanel({
         }),
       });
       const data = (await res.json()) as { error?: string };
-      if (!res.ok) throw new Error(data.error || `Gagal (${res.status}).`);
+      if (!res.ok) throw new Error(data.error || `Failed (${res.status}).`);
       setSaved(true);
       router.refresh();
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Gagal menyimpan.");
+      setError(e instanceof Error ? e.message : "Could not save.");
     } finally {
       setBusy(false);
     }
@@ -98,26 +98,26 @@ export function IdentityPanel({
         { method: "DELETE" },
       );
       const data = (await res.json()) as { error?: string };
-      if (!res.ok) throw new Error(data.error || `Gagal (${res.status}).`);
+      if (!res.ok) throw new Error(data.error || `Failed (${res.status}).`);
       // Dialog ditutup DULU: kalau tidak, ia tetap menutupi layar sementara
       // halaman di belakangnya sudah pindah ke kantor.
       onFired?.();
       router.push("/");
       router.refresh();
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Gagal memecat.");
+      setError(e instanceof Error ? e.message : "Could not fire.");
       setBusy(false);
     }
   }
 
   return (
     <TermBlock
-      label={configured ? "Identitas" : "Identitas — belum diisi"}
+      label={configured ? "identity" : "identity — not filled in"}
       tone={configured ? "default" : "warn"}
     >
       {!configured ? (
         <p className="text-term-warn mb-2 text-xs">
-          Karyawan ini belum punya identitas, jadi dia tidak akan mengerjakan apa
+          This employee has no identity yet, so they will not do any
           pun. Isi di bawah.
         </p>
       ) : null}
@@ -128,11 +128,11 @@ export function IdentityPanel({
           onClick={() => setOpen(true)}
           className="text-term-dim hover:text-term-prompt cursor-pointer text-xs transition-colors"
         >
-          Ubah identitas, ganti nama, atau pecat →
+          Edit identity, rename, or fire →
         </button>
       ) : (
         <div className="space-y-3">
-          <Field label="Nama">
+          <Field label="Name">
             <input
               value={draftName}
               onChange={(e) => setDraftName(e.target.value)}
@@ -140,7 +140,7 @@ export function IdentityPanel({
             />
           </Field>
 
-          <Field label="Kontrak kerja — dia mengerjakan apa, dan melapor bagaimana">
+          <Field label="Job contract — what they do, and how they report">
             <textarea
               value={draftProfile}
               onChange={(e) => setDraftProfile(e.target.value)}
@@ -149,7 +149,7 @@ export function IdentityPanel({
             />
           </Field>
 
-          <Field label="Cara membawa diri — nada dan batasannya">
+          <Field label="How they carry themselves — tone and limits">
             <textarea
               value={draftSoul}
               onChange={(e) => setDraftSoul(e.target.value)}
@@ -158,7 +158,7 @@ export function IdentityPanel({
             />
           </Field>
 
-          <Field label="Kapabilitas — aturan kerja yang selalu berlaku">
+          <Field label="Capabilities — working rules that always apply">
             <textarea
               value={draftAgents}
               onChange={(e) => setDraftAgents(e.target.value)}
@@ -166,7 +166,7 @@ export function IdentityPanel({
               className="border-border focus:border-term-prompt w-full resize-y border bg-transparent px-2 py-1 font-mono text-[11px] outline-none"
             />
             <p className="text-term-dim mt-1 text-[10px]">
-              Berbeda dari keahlian: yang di sini selalu dibaca, keahlian hanya
+              Different from a skill: this is always read, a skill only
               dipanggil saat pemicunya cocok.
             </p>
           </Field>
@@ -174,7 +174,7 @@ export function IdentityPanel({
           {error ? <p className="text-term-warn text-xs">{error}</p> : null}
           {saved && !dirty ? (
             <p className="text-term-prompt text-xs">
-              Tersimpan. Berlaku mulai sesi kerjanya yang berikutnya.
+              Saved. It takes effect from their next working session.
             </p>
           ) : null}
 
@@ -189,7 +189,7 @@ export function IdentityPanel({
                 (busy || !dirty) && "cursor-default opacity-50 hover:bg-transparent hover:text-term-prompt",
               )}
             >
-              {busy ? "Menyimpan…" : "Simpan"}
+              {busy ? "Saving…" : "Save"}
             </button>
             {/* Di dialog manajemen penyunting ini SATU-SATUNYA isi tabnya, jadi
                 menciutkannya cuma menyisakan tautan yang membuka kembali hal
@@ -209,19 +209,19 @@ export function IdentityPanel({
               onClick={() => setFiring(!firing)}
               className="text-term-dim hover:text-term-warn ml-auto cursor-pointer text-xs transition-colors"
             >
-              Pecat {draftName || "karyawan ini"}
+              Fire {draftName || "this employee"}
             </button>
           </div>
 
           {firing ? (
             <div className="border-term-warn/50 border p-3">
               <p className="text-term-warn text-xs">
-                Ini menghapus {name} beserta seluruh riwayat kerjanya di QwenPaw,
-                dan tidak bisa dibatalkan.
+                This deletes {name} and every trace of their work in QwenPaw,
+                and cannot be undone.
               </p>
               <p className="text-term-dim mt-1.5 text-[11px]">
-                Ketik <span className="text-foreground">{name}</span> untuk
-                mengonfirmasi.
+                Type <span className="text-foreground">{name}</span> to
+                confirm.
               </p>
               <div className="mt-2 flex gap-2">
                 <input

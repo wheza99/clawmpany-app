@@ -60,7 +60,7 @@ export function HireCatalog({
     if (!selected) return;
     const trimmed = name.trim();
     if (!trimmed) {
-      setError("Beri dia nama dulu.");
+      setError("Give them a name first.");
       return;
     }
     setError(null);
@@ -68,11 +68,11 @@ export function HireCatalog({
   }
 
   return (
-    <TermBlock label={compact ? "Rekrut karyawan" : "Pilih karyawan pertama"}>
+    <TermBlock label={compact ? "hire an employee" : "pick your first employee"}>
       {!compact ? (
         <p className="text-term-dim mb-3 text-xs">
-          Pilih satu jabatan. Kamu akan melihat karyawannya utuh dulu — peran,
-          cara melapor, dan jadwal kerja pertamanya — baru dia dibuat.
+          Pick a role. You see the whole employee first — what they do, how they
+          report, and their first schedule — before anything is created.
         </p>
       ) : null}
 
@@ -120,18 +120,18 @@ export function HireCatalog({
 
                     {role.suggestedSchedule ? (
                       <p className="text-term-dim mt-2 text-xs">
-                        <span className="text-term-prompt">jadwal: </span>
+                        <span className="text-term-prompt">schedule: </span>
                         {role.suggestedSchedule.label}
                       </p>
                     ) : (
                       <p className="text-term-dim mt-2 text-xs">
-                        <span className="text-term-warn">jadwal: </span>
-                        belum ada — atur sendiri setelah direkrut
+                        <span className="text-term-warn">schedule: </span>
+                        none yet — set it yourself after hiring
                       </p>
                     )}
 
                     <div className="mt-3 space-y-2">
-                      <Field label="Nama panggilan">
+                      <Field label="What to call them">
                         <input
                           value={name}
                           onChange={(e) => setName(e.target.value)}
@@ -144,7 +144,7 @@ export function HireCatalog({
                           value={extra}
                           onChange={(e) => setExtra(e.target.value)}
                           rows={2}
-                          placeholder="Hal spesifik tentang perusahaanmu yang dia perlu tahu."
+                          placeholder="Anything specific about your company they need to know."
                           className="border-border focus:border-term-prompt w-full resize-none border bg-transparent px-2 py-1 text-sm outline-none"
                         />
                       </Field>
@@ -156,7 +156,7 @@ export function HireCatalog({
 
                     <div className="mt-3">
                       <TermButton variant="primary" onClick={propose}>
-                        Lihat {name.trim() || "calonnya"} dulu
+                        Review {name.trim() || "the candidate"} first
                       </TermButton>
                     </div>
                   </>

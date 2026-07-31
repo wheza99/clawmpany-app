@@ -15,21 +15,45 @@ import {
 import { scanForHireDraft } from "@/lib/hire-draft";
 import { chatStream, newId, newSessionId, type PawPhase } from "@/lib/paw";
 import { cn } from "@/lib/utils";
-import { APP_VERSION } from "@/lib/version";
+import { ROLE_CATALOG } from "@/lib/roles";
+import type { OfficeBrief, OfficeReport } from "@/lib/report";
 import { MarkdownText } from "@/components/markdown-text";
 import { AgentAvatar } from "@/components/office/agent-avatar";
 import { AgentDialog } from "@/components/office/agent-dialog";
+import { HireCatalog } from "@/components/office/hire-catalog";
 import { HireDraftCard } from "@/components/office/hire-draft-card";
+import { OfficeList } from "@/components/office/office-list";
+import { ReportView } from "@/components/office/report-view";
+import { IdentityRow } from "@/components/terminal/identity-row";
 import { Elapsed, Spinner } from "@/components/terminal/spinner";
 import {
   TermBlock,
-  TermGutter,
   TermRow,
   type TermTone,
 } from "@/components/terminal/primitives";
 
 /**
- * The whole interface: one centred column, no chrome.
+ * SELURUH antarmuka Clawmpany. Satu kolom di tengah, satu halaman, tanpa menu.
+ *
+ * Dulu ada tiga halaman — laporan kantor, daftar perusahaan, dan ruang chat —
+ * dengan rel navigasi untuk berpindah di antaranya. Ketiganya sekarang ada di
+ * sini. Yang jadi kerangka cuma `IdentityRow`: nama produk (atau pemilih
+ * perusahaan begitu kamu masuk) di kiri, ikon akun di kanan. Selebihnya
+ * percakapan.
+ *
+ * ── KE MANA PERGINYA HALAMAN-HALAMAN ITU ────────────────────────────────────
+ *  · Laporan kantor    → `/laporan`, dirender sebagai blok di transkrip.
+ *  · Semua perusahaan  → `/semua`, sama.
+ *  · Katalog rekrut    → `/rekrut`, sama — dan manajer gedung tetap bisa
+ *                        mengusulkan sendiri lewat `HireDraftCard`.
+ *  · Pengaturan karyawan → `AgentDialog`, dibuka dengan mengklik namanya di
+ *                        mana pun ia muncul: di atas balasannya, atau di
+ *                        daftar karyawan dalam blok laporan.
+ *
+ * Itu bukan tiga layar yang disembunyikan di balik perintah. Bedanya nyata:
+ * jawabannya muncul DI TEMPAT pertanyaannya diketik, jadi kalimat berikutnya
+ * masih punya konteks angka yang barusan terbaca — yang justru hilang setiap
+ * kali orang harus pergi ke halaman lain untuk melihatnya.
  *
  * Visual grammar lifted from pabrik-startup's components/assistant-ui/thread.tsx
  * — a fixed-width `❯` gutter opens every line, rules are hairlines, nothing is
@@ -54,9 +78,10 @@ import {
  *  2. Setiap gelembung diberi NAMA — satu kata untuk manusianya, nama (dan id)
  *     agent untuk lawan bicaranya. Tanpa itu, kantor berisi 20 karyawan
  *     menghasilkan 20 transkrip yang terlihat persis sama.
- *  3. `prime` membuka sesi dengan satu giliran yang tidak pernah ditampilkan:
- *     instruksinya disusun server (lib/prompt.ts), yang muncul di layar hanya
- *     jawaban agent-nya.
+ *  3. Instruksi sesi disusun SERVER (lib/prompt.ts) dan menumpang pada pesan
+ *     pertama yang benar-benar diketik orang — jadi agent sudah tahu keadaan
+ *     kantor sebelum menjawab kalimat pertama, tanpa satu pun giliran yang
+ *     terbakar hanya untuk menyapa.
  *  4. Kanal tool-call yang tidak ada itu juga alasan merekrut lewat chat memakai
  *     SATU BLOK ```json di dalam balasan biasa (lib/hire-draft.ts). Manajer
  *     gedung menulis usulannya sebagai teks; `AssistantBody` memungutnya dan
@@ -74,10 +99,21 @@ interface CommandBlock {
   note?: string;
 }
 
+/**
+ * Layar yang dulu berupa halaman, kini jadi blok di transkrip.
+ *
+ * Yang disimpan di state cuma NAMANYA. Isinya diambil `PanelView` saat blok itu
+ * dipasang — jadi angka yang kamu minta lima menit lalu tidak diam-diam
+ * berubah, dan transkrip tidak perlu menyimpan satu laporan penuh per baris.
+ */
+type PanelKind = "report" | "all" | "hire";
+
 interface ChatMessage {
   id: string;
   role: "user" | "assistant";
   text: string;
+  /** `Date.now()` saat baris ini masuk transkrip — jam kecil di gelembungnya. */
+  at: number;
   reasoning?: string;
   error?: boolean;
   streaming?: boolean;
@@ -89,16 +125,39 @@ interface ChatMessage {
   speaker?: string;
   /** Render as a labelled terminal block instead of markdown text. */
   block?: CommandBlock;
+  /** Render a whole ex-halaman di sini. Mengalahkan `block` dan `text`. */
+  panel?: PanelKind;
 }
+
+/**
+ * `14:32` — jam kirim, zona waktu browsernya.
+ *
+ * Aman dibaca di sini meski komponennya juga dirender di server: transkrip
+ * SELALU mulai kosong, jadi tidak ada satu pun jam yang ikut dirender server
+ * dan bisa berbeda dari yang dihitung ulang browser saat hidrasi.
+ */
+const CLOCK = new Intl.DateTimeFormat("en-GB", {
+  hour: "2-digit",
+  minute: "2-digit",
+});
+
+const Clock: FC<{ at: number }> = ({ at }) => (
+  <time
+    dateTime={new Date(at).toISOString()}
+    className="text-term-dim shrink-0 text-[11px] leading-5 tabular-nums select-none"
+  >
+    {CLOCK.format(at)}
+  </time>
+);
 
 const THEME_COMMANDS = new Set(["light", "dark", "system"]);
 
 /** Apa yang sebenarnya sedang terjadi, per tahap aliran. */
 const PHASE_LABEL: Record<PawPhase, string> = {
-  connecting: "menghubungi paw.wheza.id",
-  waiting: "menunggu balasan",
-  thinking: "berpikir",
-  writing: "menulis jawaban",
+  connecting: "reaching paw.wheza.id",
+  waiting: "waiting for a reply",
+  thinking: "thinking",
+  writing: "writing",
 };
 
 /**
@@ -121,27 +180,10 @@ export interface ThreadProps {
   agentName?: string;
   /** Nama panggilan penggunanya, SATU KATA (lihat lib/office.ts viewerName). */
   userName?: string;
-  /**
-   * Karyawan kantor ini, jadi nama + fotonya membuka dialog manajemen.
-   *
-   * Manajer gedung TIDAK termasuk: ia sengaja tidak pernah masuk roster mana
-   * pun (lihat lib/qwenpaw.ts), jadi semua rute manajemennya menjawab 404 —
-   * nama yang bisa diklik di sana cuma jalan buntu yang tampak seperti
-   * kerusakan.
-   *
-   * Diabaikan bila `colleagues` diisi: di layar yang bisa berpindah orang,
-   * `canManage` membedakannya per pembicara, bukan per layar.
-   */
-  manageable?: boolean;
-  /** Kalimat pembuka saat transkrip masih kosong. Diabaikan bila `prime`. */
-  greeting?: string;
-  /**
-   * Buka sesi dengan giliran tersembunyi: server menyusun instruksinya, agent
-   * menjawab, dan hanya jawaban itu yang masuk transkrip. Satu panggilan ke
-   * QwenPaw per sesi — jadi hanya dinyalakan di layar yang memang dibuka untuk
-   * mengobrol, bukan di setiap halaman yang kebetulan memuat komponen ini.
-   */
-  prime?: boolean;
+  /** Clerk menyala. Mati = tanpa pemilih perusahaan dan tanpa tombol akun. */
+  authOn: boolean;
+  /** Nama kantor — ikut tertulis di berkas karyawan yang direkrut dari sini. */
+  companyName: string;
   /**
    * Semua yang boleh diajak bicara di layar ini, TERMASUK yang membuka
    * percakapan. Diisi = pembicaraan bisa berpindah karyawan. Server tetap
@@ -153,10 +195,9 @@ export interface ThreadProps {
 export const Thread: FC<ThreadProps> = ({
   agentId,
   agentName,
-  userName = "kamu",
-  manageable = false,
-  greeting,
-  prime = false,
+  userName = "you",
+  authOn,
+  companyName,
   colleagues,
 }) => {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
@@ -199,20 +240,20 @@ export const Thread: FC<ThreadProps> = ({
     roster.find((c) => c.id === id) ?? {
       id,
       name: agentName || id || "agent",
-      title: "karyawan",
+      title: "employee",
     };
 
   /**
    * Boleh diatur dari sini atau tidak.
    *
-   * Manajer gedung tidak pernah masuk roster mana pun, jadi semua rute
-   * manajemennya menjawab 404 — foto yang bisa diklik untuknya cuma jalan buntu
-   * yang terbaca sebagai kerusakan. Di layar yang bisa berpindah orang, dialah
-   * yang membuka percakapan; semua nama LAIN di sana datang dari roster kantor
-   * dan memang bisa diatur.
+   * Manajer gedung tidak pernah masuk roster mana pun (lihat lib/qwenpaw.ts),
+   * jadi semua rute manajemennya menjawab 404 — foto yang bisa diklik untuknya
+   * cuma jalan buntu yang terbaca sebagai kerusakan. Dialah yang membuka
+   * percakapan; semua nama LAIN datang dari roster kantor dan memang bisa
+   * diatur.
    */
   const canManage = (id?: string): boolean =>
-    Boolean(id) && (canSwitch ? id !== opening : manageable);
+    Boolean(id) && canSwitch && id !== opening;
 
   const nearBottom = useCallback(() => {
     const el = scrollerRef.current;
@@ -245,7 +286,22 @@ export const Thread: FC<ThreadProps> = ({
   };
 
   const pushBlock = (block: CommandBlock) => {
-    setMessages((prev) => [...prev, { id: newId(), role: "assistant", text: "", block }]);
+    setMessages((prev) => [
+      ...prev,
+      { id: newId(), role: "assistant", text: "", at: Date.now(), block },
+    ]);
+  };
+
+  /** Echo perintahnya, lalu pasang satu ex-halaman di bawahnya. */
+  const echoPanel = (raw: string, panel: PanelKind) => {
+    setMessages((prev) => {
+      const at = Date.now();
+      return [
+        ...prev,
+        { id: newId(), role: "user" as const, text: raw, at },
+        { id: newId(), role: "assistant" as const, text: "", at, panel },
+      ];
+    });
   };
 
   const remember = (who: string, text: string) => {
@@ -260,16 +316,13 @@ export const Thread: FC<ThreadProps> = ({
 
   /** Echo `raw` as a user line, then a labelled block as the reply. */
   const echoBlock = (raw: string, block: CommandBlock) => {
+    const at = Date.now();
     setMessages((prev) => [
       ...prev,
-      { id: newId(), role: "user", text: raw },
-      { id: newId(), role: "assistant", text: "", block },
+      { id: newId(), role: "user", text: raw, at },
+      { id: newId(), role: "assistant", text: "", at, block },
     ]);
   };
-
-  // Naik tiap `/new`. Efek pembuka membaca angka ini, jadi sesi baru dibuka
-  // ulang dengan sambutan baru alih-alih halaman kosong.
-  const [primeNonce, setPrimeNonce] = useState(0);
 
   /**
    * Jalankan satu slash command. Semuanya ditangani di browser — yang
@@ -294,38 +347,37 @@ export const Thread: FC<ThreadProps> = ({
     }
 
     if (name === "new" || name === "clear") {
-      // Wipe the transcript and start a fresh QwenPaw session. No echo — the
-      // empty state (banner, atau sambutan baru bila `prime`) yang jadi
-      // konfirmasinya.
+      // Bersihkan transkrip dan buang id sesinya, jadi pesan berikutnya membuka
+      // sesi QwenPaw yang benar-benar baru — lengkap dengan instruksi sesinya
+      // lagi. Tanpa echo: kembalinya layar pembuka yang jadi konfirmasinya.
       setMessages([]);
       sessionsRef.current = {};
       historyRef.current = [];
       lastAskRef.current = "";
       speakingRef.current = opening;
       setSpeaking(opening);
-      setPrimeNonce((n) => n + 1);
       return null;
     }
 
-    if (canSwitch && (name === "siapa" || name === "who")) {
+    if (canSwitch && (name === "who" || name === "siapa")) {
       echoBlock(raw, {
-        label: "kantor",
+        label: "office",
         tone: "dim",
         rows: roster.map((c) => ({
           label: c.id === speakingRef.current ? `${c.id} ←` : c.id,
           value: c.name,
         })),
-        note: `Sekarang kamu bicara dengan ${nameOf(speakingRef.current).name}. Ketik /ke <nama> untuk pindah — atau minta saja dengan kalimat biasa.`,
+        note: `You are talking to ${nameOf(speakingRef.current).name}. Type /to <name> to switch — or just ask in plain words.`,
       });
       return null;
     }
 
-    if (canSwitch && (name === "ke" || name === "to")) {
+    if (canSwitch && (name === "to" || name === "ke")) {
       if (!rest) {
         echoBlock(raw, {
           label: "error",
           tone: "warn",
-          note: "Sebut siapa yang mau diajak bicara — misalnya /ke wati.",
+          note: "Name who you want to talk to — for example /to wati.",
         });
         return null;
       }
@@ -334,46 +386,68 @@ export const Thread: FC<ThreadProps> = ({
         echoBlock(raw, {
           label: "error",
           tone: "warn",
-          note: `Tidak ada "${rest}" di kantor ini. Ketik /siapa untuk daftarnya.`,
+          note: `No one called "${rest}" in this office. Type /who for the list.`,
         });
         return null;
       }
       if (target.id === speakingRef.current) {
         echoBlock(raw, {
-          label: "alih",
+          label: "handover",
           tone: "dim",
-          note: `Kamu memang sedang bicara dengan ${target.name}.`,
+          note: `You are already talking to ${target.name}.`,
         });
         return null;
       }
       // Diminta pengguna secara eksplisit, jadi tidak perlu membakar satu
       // giliran model cuma untuk memutuskan hal yang sudah diputuskan.
-      setMessages((prev) => [...prev, { id: newId(), role: "user", text: raw }]);
+      setMessages((prev) => [
+        ...prev,
+        { id: newId(), role: "user", text: raw, at: Date.now() },
+      ]);
       return () =>
         switchTo({
           to: target,
-          brief: `${userName} meminta bicara denganmu langsung.`,
+          brief: `${userName} asked to speak with you directly.`,
           ask:
             lastAskRef.current ||
-            "Belum ada pertanyaan — perkenalkan diri dan tawarkan bantuan.",
+            "No question yet — introduce yourself and offer to help.",
           depth: 0,
         });
+    }
+
+    // Tiga layar yang dulu berupa halaman tersendiri. Dipasang apa adanya di
+    // transkrip — tanpa memanggil QwenPaw, karena semuanya dijawab server
+    // aplikasi ini sendiri dan tidak ada yang perlu dipikirkan model.
+    if (name === "report" || name === "office" || name === "laporan") {
+      echoPanel(raw, "report");
+      return null;
+    }
+    if (name === "all" || name === "companies" || name === "semua") {
+      echoPanel(raw, "all");
+      return null;
+    }
+    if (name === "hire" || name === "rekrut") {
+      echoPanel(raw, "hire");
+      return null;
     }
 
     if (name === "help") {
       echoBlock(raw, {
         label: "help",
         tone: "dim",
-        note: "Slash commands run in your browser — they never reach paw.wheza.id. Anything else is sent as chat.",
+        note: "Slash commands run in this browser — none of them reach paw.wheza.id. Anything else you type is sent as chat.",
         rows: [
-          { label: "/light · /dark · /system", value: "switch theme" },
-          { label: "/new", value: "start a fresh chat" },
+          { label: "/report", value: "the office today" },
+          { label: "/all", value: "every company you own" },
+          { label: "/hire", value: "role catalogue" },
           ...(canSwitch
             ? [
-                { label: "/ke <nama>", value: "pindah karyawan" },
-                { label: "/siapa", value: "siapa saja di kantor" },
+                { label: "/to <name>", value: "switch employee" },
+                { label: "/who", value: "everyone in this office" },
               ]
             : []),
+          { label: "/new", value: "start a fresh conversation" },
+          { label: "/light · /dark · /system", value: "switch theme" },
           { label: "/help", value: "this list" },
         ],
       });
@@ -408,11 +482,11 @@ export const Thread: FC<ThreadProps> = ({
     const from = nameOf(speakingRef.current);
 
     pushBlock({
-      label: "alih",
+      label: "handover",
       tone: "dim",
       rows: [
-        { label: "dari", value: from.name },
-        { label: "ke", value: `${to.name} · ${to.title}` },
+        { label: "from", value: from.name },
+        { label: "to", value: `${to.name} · ${to.title}` },
       ],
       note: brief || undefined,
     });
@@ -452,19 +526,26 @@ export const Thread: FC<ThreadProps> = ({
     if (!known) sessionsRef.current[target] = sessionId;
 
     const assistantId = newId();
-    setMessages((prev) => [
-      ...prev,
-      ...(hidden ? [] : [{ id: newId(), role: "user" as const, text }]),
-      {
-        id: assistantId,
-        role: "assistant",
-        text: "",
-        streaming: true,
-        phase: "connecting",
-        startedAt: Date.now(),
-        speaker: canSwitch ? target : undefined,
-      },
-    ]);
+    setMessages((prev) => {
+      // Satu stempel untuk kedua baris: gelembung yang dikirim dan balasan yang
+      // menyusulnya harus menunjukkan jam yang sama, bukan dua pembacaan jam
+      // yang kebetulan jatuh di menit berbeda.
+      const at = Date.now();
+      return [
+        ...prev,
+        ...(hidden ? [] : [{ id: newId(), role: "user" as const, text, at }]),
+        {
+          id: assistantId,
+          role: "assistant" as const,
+          text: "",
+          at,
+          streaming: true,
+          phase: "connecting" as const,
+          startedAt: at,
+          speaker: canSwitch ? target : undefined,
+        },
+      ];
+    });
     stickToBottomRef.current = true;
 
     const ctl = new AbortController();
@@ -490,7 +571,7 @@ export const Thread: FC<ThreadProps> = ({
         patchMessage(assistantId, { streaming: false });
         return;
       }
-      const msg = err instanceof Error ? err.message : "Gagal mengirim pesan.";
+      const msg = err instanceof Error ? err.message : "Could not send the message.";
       patchMessage(assistantId, { text: msg, error: true, streaming: false });
       return;
     }
@@ -513,17 +594,17 @@ export const Thread: FC<ThreadProps> = ({
     const to = findColleague(roster, handoff.to);
     if (!to || to.id === target) {
       pushBlock({
-        label: "alih gagal",
+        label: "handover failed",
         tone: "warn",
-        note: `${nameOf(target).name} mencoba mengalihkan ke "${handoff.to}", dan tidak ada karyawan itu di kantor ini.`,
+        note: `${nameOf(target).name} tried to hand over to "${handoff.to}", and there is no such employee in this office.`,
       });
       return;
     }
     if (depth >= MAX_SWITCH_PER_TURN) {
       pushBlock({
-        label: "alih berhenti",
+        label: "handover stopped",
         tone: "warn",
-        note: `Sudah ${depth} kali dialihkan untuk satu pertanyaan. Ketik /ke ${to.id} kalau memang mau lanjut ke ${to.name}.`,
+        note: `Handed over ${depth} times for one question. Type /to ${to.id} if you really want to continue with ${to.name}.`,
       });
       return;
     }
@@ -566,75 +647,59 @@ export const Thread: FC<ThreadProps> = ({
     await runChain(() => runTurn(speakingRef.current, trimmed));
   };
 
-  // Giliran pembuka. Fungsinya dititipkan lewat ref supaya efek yang
-  // membukanya tidak ikut berjalan ulang tiap render — `runTurn` dan `runChain`
-  // dibuat baru tiap render karena keduanya saling memanggil dengan `switchTo`.
-  // Menitipkannya DI DALAM efek, bukan saat render, karena ref memang tidak
-  // boleh ditulis selagi merender.
-  const openRef = useRef<() => Promise<void>>(async () => {});
-  useEffect(() => {
-    openRef.current = () =>
-      runChain(() => runTurn(speakingRef.current, "", { hidden: true }));
-  });
-
-  // Penjaganya sebuah ref, bukan state, supaya efek yang dijalankan dua kali
-  // (StrictMode di dev) tetap menghasilkan SATU panggilan ke QwenPaw — bukan
-  // dua sambutan yang saling menimpa.
-  const primedRef = useRef(-1);
-  useEffect(() => {
-    if (!prime || primedRef.current === primeNonce) return;
-    primedRef.current = primeNonce;
-    void openRef.current();
-  }, [prime, primeNonce]);
-
   const stop = useCallback(() => {
     abortRef.current?.abort();
   }, []);
 
   const here = nameOf(speaking);
 
+  const speakerLine = canSwitch ? (
+    // Siapa yang sedang menjawab HARUS terlihat tanpa menggulir ke bawah:
+    // begitu pembicaraan bisa berpindah, "aku sedang bicara dengan siapa" jadi
+    // pertanyaan yang muncul terus-menerus. Satu baris, menempel di bawah garis
+    // pita — bukan bilah kedua, yang akan memakan sepertiga layar ponsel
+    // sebelum satu kalimat percakapan pun terbaca.
+    <div className="text-term-dim mt-2 flex items-baseline gap-x-2 text-[11px]">
+      <span aria-hidden="true" className="text-term-prompt">
+        ■
+      </span>
+      <span className="text-foreground truncate">{here.name}</span>
+      <span className="truncate">{here.title}</span>
+      <span className="ml-auto shrink-0 whitespace-nowrap">
+        <span className="text-term-prompt">/who</span> to switch
+      </span>
+    </div>
+  ) : null;
+
   return (
     <div className="bg-background flex h-full w-full flex-col">
-      {canSwitch ? (
-        // Siapa yang sedang menjawab HARUS terlihat tanpa menggulir ke bawah:
-        // begitu pembicaraan bisa berpindah, "aku sedang bicara dengan siapa"
-        // jadi pertanyaan yang muncul terus-menerus.
-        <div className="border-border bg-card/40 shrink-0 border-b px-4 py-2 sm:px-6">
-          <div className="mx-auto w-full max-w-[46rem]">
-            <p className="text-sm">
-              {here.name}
-              <span className="text-term-dim ml-2 text-[11px]">{here.title}</span>
-            </p>
-            <p className="text-term-dim text-[11px]">
-              Minta saja kalau mau bicara dengan orang lain — atau ketik{" "}
-              <span className="text-term-prompt">/siapa</span> untuk daftarnya.
-            </p>
-          </div>
-        </div>
-      ) : null}
+      {!isEmpty ? <AppHeader authOn={authOn}>{speakerLine}</AppHeader> : null}
 
       <div
         ref={scrollerRef}
         onScroll={onViewportScroll}
-        className="relative flex flex-1 flex-col overflow-y-auto scroll-smooth"
+        // `scrollbar-gutter: stable both-edges` yang menjaga pita di atas
+        // sejajar dengan transkrip: pita berada di luar elemen ini, jadi ia
+        // memusat pada lebar penuh sementara isi di sini memusat pada lebar
+        // sisa setelah batang gulung — setengah batang gulung selisihnya, yang
+        // terbaca sebagai header yang tergeser ke kanan.
+        className="relative flex flex-1 flex-col overflow-y-auto scroll-smooth [scrollbar-gutter:stable_both-edges]"
       >
         <div
           className={cn(
-            "mx-auto flex w-full max-w-[46rem] flex-1 flex-col px-4 pt-6 sm:px-6",
-            isEmpty && !prime && "justify-center",
+            "mx-auto flex w-full max-w-[46rem] flex-1 flex-col px-4 sm:px-6",
+            // Hanya keadaan kosong yang membayar padding atasnya sendiri.
+            // Begitu pita ada, dialah pemilik ruang itu, dan menggandakannya di
+            // sini cuma melipatduakan jarak di bawah garis.
+            isEmpty && "justify-center pt-6",
           )}
         >
-          {isEmpty ? (
-            // Dengan `prime`, sambutan datang dari agent-nya sendiri beberapa
-            // ratus milidetik lagi. Menampilkan banner statis lebih dulu hanya
-            // menghasilkan kedipan; baris ini yang menempati tempatnya.
-            prime ? <BootLine /> : <Banner greeting={greeting} />
-          ) : null}
+          {isEmpty ? <Banner authOn={authOn} /> : null}
 
-          <div className="mb-10 flex flex-col gap-6">
+          <div className="mb-10 flex flex-col gap-6 empty:hidden">
             {messages.map((m) =>
               m.role === "user" ? (
-                <UserMessage key={m.id} text={m.text} name={userName} />
+                <UserMessage key={m.id} text={m.text} at={m.at} />
               ) : (
                 <AssistantMessage
                   key={m.id}
@@ -643,6 +708,11 @@ export const Thread: FC<ThreadProps> = ({
                     m.speaker ? nameOf(m.speaker).name : agentName || agentId || "agent"
                   }
                   agentId={m.speaker ?? agentId}
+                  company={companyName}
+                  // Nama karyawan di dalam blok laporan membuka dialog yang
+                  // sama dengan foto di atas balasannya. Satu pintu, di mana
+                  // pun namanya kebetulan muncul.
+                  onOpenAgent={(id, name) => setManaging({ id, name, title: "employee" })}
                   onManage={
                     canManage(m.speaker ?? agentId)
                       ? () => setManaging(nameOf((m.speaker ?? agentId)!))
@@ -655,8 +725,12 @@ export const Thread: FC<ThreadProps> = ({
 
           <div
             className={cn(
-              "bg-background mt-auto flex flex-col gap-2 pb-4 sm:pb-6",
-              !isEmpty && "sticky bottom-0",
+              "bg-background flex flex-col gap-2 pb-4 sm:pb-6",
+              // `mt-auto` HANYA setelah ada percakapan. Di layar kosong ia
+              // mendorong kotak ketik ke dasar layar dan membatalkan
+              // `justify-center` di kolomnya — banner tertinggal sendirian di
+              // atas, jauh dari kotak yang seharusnya ia ajak mengetik.
+              !isEmpty && "sticky bottom-0 mt-auto",
             )}
           >
             <Composer
@@ -688,47 +762,87 @@ export const Thread: FC<ThreadProps> = ({
 
 // ------------------------------------------------------------------- banner
 
-const Banner: FC<{ greeting?: string }> = ({ greeting }) => (
+/**
+ * Layar pembuka — dan satu-satunya kali seluruh identitas duduk di tengah.
+ *
+ * Bertahan selama transkrip kosong, yaitu sampai kamu benar-benar mengetik
+ * sesuatu. Tidak ada sapaan otomatis yang menggesernya: manajer gedung baru
+ * bicara setelah ditanya, dan instruksi sesinya menumpang pada pertanyaan
+ * pertama itu (lihat lib/prompt.ts). Begitu ada percakapan, baris ini naik jadi
+ * `AppHeader` — pita yang sama di tempat yang sama, cuma berhenti ikut
+ * menggulung, jadi yang terjadi terbaca sebagai perpindahan dan bukan sebagai
+ * bilah baru yang tiba-tiba muncul.
+ */
+const Banner: FC<{ authOn: boolean }> = ({ authOn }) => (
   <div className="mb-8 select-none">
-    <div className="flex items-baseline gap-2">
-      <span className="text-term-prompt text-sm font-medium tracking-tight">
-        clawmpany
-      </span>
-      <span className="text-term-dim text-[11px]">v{APP_VERSION}</span>
-    </div>
+    <IdentityRow authOn={authOn} />
     <div className="border-term-rule my-2.5 border-t" />
+    {/*
+      One sentence, one claim: they work while you are not looking. It is the
+      only thing on this screen a chat box could not also say.
+
+      Two earlier drafts died here and both died the same way. The first listed
+      steps ("hire employees, set their schedule, read the report") and closed
+      on a note about the interface itself — but the screen is already one
+      page, so a page explaining its own shape spends its most valuable line on
+      something already visible. The second promised a morning report, which is
+      a promise an empty office cannot keep: nobody is scheduled yet, so the
+      line was true about the product and false about the screen it sat on.
+
+      What survives says only what is true the moment you read it.
+    */}
     <p className="text-muted-foreground text-xs leading-relaxed">
-      {greeting ??
-        "Ketik apa pun di bawah — jawabannya mengalir token demi token."}
+      AI employees that work on a schedule, whether or not you open this screen.
     </p>
-    <p className="text-term-dim term-caret mt-1.5 text-xs">ketik di bawah</p>
-    <p className="text-term-dim mt-1.5 text-[11px]">
-      ketik <span className="text-term-prompt">/help</span> untuk perintah tema &amp;
-      chat baru
-    </p>
+    <p className="text-term-dim term-caret mt-1.5 text-xs">type below to begin</p>
   </div>
 );
 
-/** Satu baris sementara sebelum gelembung pertama muncul. */
-const BootLine: FC = () => (
-  <div className="text-term-dim mb-8 flex items-baseline gap-1.5 text-[11px]">
-    <Spinner className="text-term-prompt" />
-    <span>menyiapkan percakapan…</span>
+/**
+ * Apa jadinya baris atas banner begitu ada percakapan yang harus ia payungi.
+ *
+ * Ia hidup DI LUAR area yang menggulung, dan itu bukan pilihan gaya. Sebagai
+ * elemen sticky di dalamnya, ia akan menutupi baris teratas transkrip setiap
+ * kali isinya digulung ke atas — dan `pb-6` di bawah garisnya akan ikut
+ * menggulung pergi, membuat pesan pertama menempel di garis. Ruang di bawah
+ * garis hanya bertahan kalau yang memegangnya adalah elemen di luar penggulung.
+ */
+const AppHeader: FC<{ authOn: boolean; children?: React.ReactNode }> = ({
+  authOn,
+  children,
+}) => (
+  // `relative z-20` bukan hiasan. `animate-fade-in` menyentuh opacity, dan itu
+  // membuat elemen ini jadi stacking context tersendiri — sehingga `z-10` milik
+  // panel akun di dalamnya terkurung di sini, tidak bisa naik melewati kolom
+  // transkrip yang (sebagai `position: relative`) dilukis belakangan. Akibatnya
+  // panel akun tampak tembus pandang: teks percakapan menimpanya. Yang harus
+  // diangkat adalah stacking context-nya, bukan panelnya.
+  <div className="bg-background animate-fade-in relative z-20 shrink-0 pt-6 pb-6 select-none">
+    <div className="mx-auto w-full max-w-[46rem] px-4 sm:px-6">
+      <IdentityRow authOn={authOn} />
+      <div className="border-term-rule mt-2.5 border-t" />
+      {children}
+    </div>
   </div>
 );
 
 // ------------------------------------------------------------------ messages
 
 /**
- * Baris nama di atas setiap gelembung.
+ * Baris nama di atas setiap balasan.
  *
- * Penandanya dibiarkan di kolom gutter selebar 1.25em dan diberi `text-sm`
- * supaya em-nya sama dengan badan pesan — itulah yang membuat nama dan teks di
- * bawahnya berdiri di kolom yang sama persis, berapa pun ukuran font namanya.
+ * Tidak ada lagi penanda `❯`/`■` di kolom gutter, dan badan pesannya tidak lagi
+ * digeser masuk untuk menghindarinya: sisi pengguna sekarang berupa kotak yang
+ * rata kanan, jadi SISI dan BENTUK sudah mengatakan siapa yang bicara. Penanda
+ * di gutter cuma mengulangi hal yang sama untuk kedua kalinya sambil memakan
+ * satu kolom di setiap baris.
+ *
+ * Yang tersisa di sini adalah dua fakta yang tidak bisa dibaca dari bentuknya:
+ * SIAPA yang menjawab (dan karena itu, siapa yang bisa diatur) dan KAPAN.
  */
 const MessageHeader: FC<{
-  marker: string;
   name: string;
+  at: number;
   /** id agent, kalau berbeda dari namanya. */
   sub?: string;
   tone?: "prompt" | "dim";
@@ -738,7 +852,7 @@ const MessageHeader: FC<{
    */
   onManage?: () => void;
   children?: React.ReactNode;
-}> = ({ marker, name, sub, tone = "prompt", onManage, children }) => {
+}> = ({ name, at, sub, tone = "prompt", onManage, children }) => {
   const ink = tone === "dim" ? "text-term-dim" : "text-term-prompt";
   const label = (
     <span className={cn("text-[11px] leading-5 font-medium tracking-wide", ink)}>
@@ -746,53 +860,59 @@ const MessageHeader: FC<{
     </span>
   );
   return (
-    // Tanpa `gap` di sumbu-x: jarak diatur per elemen, supaya nama benar-benar
-    // menempel di tepi kanan kolom gutter dan sejajar dengan badan pesannya.
-    <div className="flex flex-wrap items-baseline gap-y-0.5">
-      <TermGutter marker={marker} className={cn("text-sm leading-5", ink)} />
+    <div className="mb-1.5 flex flex-wrap items-center gap-x-2 gap-y-0.5">
       {onManage ? (
-        // Fotonya SENGAJA tidak menggantikan penanda di gutter: lebar kolom itu
-        // yang menjaga nama dan badan pesan berdiri di kolom yang sama, dan
-        // kotak 16px di sana akan menggesernya.
-        //
         // Isyarat "atur" muncul saat disorot, bukan permanen: baris ini
         // terulang di SETIAP balasan, jadi ajakan yang selalu terlihat menumpuk
         // jadi kebisingan di transkrip yang panjang.
         <button
           type="button"
           onClick={onManage}
-          title={`Atur ${name}`}
-          className="group focus-visible:ring-ring flex cursor-pointer items-baseline focus-visible:ring-1 focus-visible:outline-none"
+          title={`Manage ${name}`}
+          className="group focus-visible:ring-ring flex cursor-pointer items-center focus-visible:ring-1 focus-visible:outline-none"
         >
           <AgentAvatar
             name={name}
-            className="mr-1.5 size-4 self-center text-[9px] group-hover:border-term-prompt group-focus-visible:border-term-prompt"
+            className="group-hover:border-term-prompt group-focus-visible:border-term-prompt mr-1.5 size-4 text-[9px]"
           />
           {label}
           <span
             aria-hidden="true"
             className="text-term-dim ml-2 text-[10px] leading-5 opacity-0 transition-opacity group-hover:opacity-100 group-focus-visible:opacity-100"
           >
-            atur ▸
+            manage ▸
           </span>
         </button>
       ) : (
         label
       )}
       {sub && sub !== name ? (
-        <span className="text-term-dim ml-2 text-[10px] leading-5">{sub}</span>
+        <span className="text-term-dim text-[10px] leading-5">{sub}</span>
       ) : null}
+      <Clock at={at} />
       {children}
     </div>
   );
 };
 
-const UserMessage: FC<{ text: string; name: string }> = ({ text, name }) => (
-  <div className="animate-fade-in">
-    <MessageHeader marker="❯" name={name} />
-    <div className="text-foreground ml-[1.25em] min-w-0 text-sm leading-6 wrap-break-word whitespace-pre-wrap">
+/**
+ * Yang kamu ketik: satu kotak, rata kanan, sudutnya siku.
+ *
+ * Namanya sengaja TIDAK dicetak. Di layar yang cuma berisi dua pihak, sisi dan
+ * kotak sudah menjawab "siapa ini" lebih cepat daripada label yang harus
+ * dibaca — dan menuliskannya di tiap giliran berarti nama pengguna terulang
+ * puluhan kali di transkrip yang panjang. Nama karyawan tetap dicetak, karena
+ * di sisi sana ia BISA berganti orang di tengah percakapan.
+ *
+ * `max-w-[85%]` yang membuat rata-kanannya terbaca: kotak selebar kolom tidak
+ * terlihat berpihak ke mana pun.
+ */
+const UserMessage: FC<{ text: string; at: number }> = ({ text, at }) => (
+  <div className="animate-fade-in flex flex-col items-end gap-1">
+    <div className="border-border bg-card text-foreground max-w-[85%] min-w-0 border px-3 py-1.5 text-sm leading-6 wrap-break-word whitespace-pre-wrap">
       {text}
     </div>
+    <Clock at={at} />
   </div>
 );
 
@@ -800,9 +920,11 @@ const AssistantMessage: FC<{
   message: ChatMessage;
   name: string;
   agentId?: string;
+  company: string;
+  onOpenAgent: (id: string, name: string) => void;
   /** Kosong = karyawan ini tidak bisa diatur dari sini (lihat ThreadProps). */
   onManage?: () => void;
-}> = ({ message, name, agentId, onManage }) => {
+}> = ({ message, name, agentId, company, onOpenAgent, onManage }) => {
   // Selagi menalar dan belum satu kata pun ditulis, cuplikan pikirannya JAUH
   // lebih menjelaskan daripada tombol "thinking" yang tertutup. Begitu jawaban
   // mulai mengalir, cuplikan itu berhenti berguna dan tombolnya kembali.
@@ -810,28 +932,43 @@ const AssistantMessage: FC<{
 
   return (
     <div className="animate-fade-in">
-      {message.block ? (
-        // Balasan slash command dan catatan alih tidak datang dari agent mana
-        // pun — keduanya dihitung di browser ini. Menamainya dengan nama agent
-        // adalah kebohongan kecil yang merusak arti semua nama lain, dan karena
-        // itu keduanya juga tidak membawa foto yang membuka pengaturannya.
-        <MessageHeader marker="▸" name="lokal" tone="dim" />
+      {message.block || message.panel ? (
+        // Balasan slash command, catatan alih, dan ex-halaman tidak datang dari
+        // agent mana pun — semuanya dirakit browser ini. Menamainya dengan nama
+        // agent adalah kebohongan kecil yang merusak arti semua nama lain, dan
+        // karena itu tak satu pun membawa foto yang membuka pengaturannya.
+        <MessageHeader
+          name={message.panel ?? "local"}
+          at={message.at}
+          tone="dim"
+        />
       ) : (
-        <MessageHeader marker="■" name={name} sub={agentId} onManage={onManage}>
+        <MessageHeader
+          name={name}
+          at={message.at}
+          sub={agentId}
+          onManage={onManage}
+        >
           {message.streaming ? (
             <StreamStatus phase={message.phase} startedAt={message.startedAt} />
           ) : null}
         </MessageHeader>
       )}
 
-      <div className="text-foreground ml-[1.25em] min-w-0 text-sm leading-relaxed wrap-break-word">
+      <div className="text-foreground min-w-0 text-sm leading-relaxed wrap-break-word">
         {peeking ? <ReasoningPeek text={message.reasoning ?? ""} /> : null}
 
         {message.reasoning && message.reasoning.trim() && !message.block && !peeking ? (
           <ReasoningBlock text={message.reasoning} />
         ) : null}
 
-        {message.block ? (
+        {message.panel ? (
+          <PanelView
+            kind={message.panel}
+            company={company}
+            onOpenAgent={onOpenAgent}
+          />
+        ) : message.block ? (
           <CommandBlockView block={message.block} />
         ) : message.error ? (
           <div className="my-2">
@@ -846,7 +983,7 @@ const AssistantMessage: FC<{
         ) : !message.streaming ? (
           // Stop ditekan sebelum satu kata pun sampai. Gelembung kosong tanpa
           // keterangan terbaca seperti balasan yang hilang.
-          <p className="text-term-dim text-xs leading-6">(dihentikan)</p>
+          <p className="text-term-dim text-xs leading-6">(stopped)</p>
         ) : null}
       </div>
     </div>
@@ -896,7 +1033,7 @@ const AssistantBody: FC<{ text: string }> = ({ text }) => {
     return (
       <>
         {scan.before.trim() ? <MarkdownText content={scan.before} /> : null}
-        <p className="text-term-dim term-caret my-2 text-xs">menyusun usulan karyawan</p>
+        <p className="text-term-dim term-caret my-2 text-xs">drafting the hire proposal</p>
       </>
     );
   }
@@ -911,17 +1048,104 @@ const AssistantBody: FC<{ text: string }> = ({ text }) => {
         // membuat manajer gedung tampak mengabaikan permintaan; menyebut apa
         // yang salah membuat "coba lagi" jadi kalimat berikutnya yang wajar.
         <div className="my-2">
-          <TermBlock label="Usulan tidak terbaca" tone="warn">
+          <TermBlock label="proposal unreadable" tone="warn">
             <p className="text-xs leading-relaxed">{scan.reason}</p>
             <p className="text-term-dim mt-1.5 text-[11px]">
-              Minta manajer gedung menyusun ulang usulannya, atau rekrut dari
-              katalog di halaman depan.
+              Ask the building manager to redo the proposal, or type /hire to
+              pick from the catalogue.
             </p>
           </TermBlock>
         </div>
       )}
       {scan.after.trim() ? <MarkdownText content={scan.after} /> : null}
     </>
+  );
+};
+
+// ------------------------------------------------------------------- panels
+
+/**
+ * Satu ex-halaman, dipasang di tempat perintahnya diketik.
+ *
+ * Isinya diambil saat blok ini dipasang, BUKAN disimpan di transkrip. Dua
+ * akibat, keduanya disengaja: minta `/laporan` dua kali dan kamu benar-benar
+ * membaca dua keadaan yang berbeda, dan sepuluh blok laporan di satu
+ * percakapan tidak menyimpan sepuluh salinan laporan di memori browser.
+ *
+ * Katalog rekrut tidak mengambil apa pun — daftar jabatannya konstanta di
+ * lib/roles.ts, dan yang memanggil server justru langkah setelahnya.
+ */
+const PanelView: FC<{
+  kind: PanelKind;
+  company: string;
+  onOpenAgent: (id: string, name: string) => void;
+}> = ({ kind, company, onOpenAgent }) => {
+  const [report, setReport] = useState<OfficeReport | null>(null);
+  const [offices, setOffices] = useState<{
+    activeOrgId: string | null;
+    offices: OfficeBrief[];
+  } | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (kind === "hire") return;
+    let alive = true;
+
+    void (async () => {
+      const url = kind === "report" ? "/api/report" : "/api/offices";
+      try {
+        const res = await fetch(url);
+        const data = await res.json();
+        if (!alive) return;
+        if (!res.ok) throw new Error(data.error || `Failed (${res.status}).`);
+        if (kind === "report") setReport(data as OfficeReport);
+        else setOffices(data as { activeOrgId: string | null; offices: OfficeBrief[] });
+      } catch (e) {
+        if (alive) setError(e instanceof Error ? e.message : "Could not read that.");
+      }
+    })();
+
+    return () => {
+      alive = false;
+    };
+  }, [kind]);
+
+  if (kind === "hire") {
+    return (
+      <div className="my-2">
+        <HireCatalog roles={ROLE_CATALOG} company={company} />
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="my-2">
+        <TermBlock label={kind} tone="warn">
+          <p className="text-xs leading-relaxed">{error}</p>
+        </TermBlock>
+      </div>
+    );
+  }
+
+  const data = kind === "report" ? report : offices;
+  if (!data) {
+    return (
+      <p className="text-term-dim my-2 flex items-baseline gap-1.5 text-xs">
+        <Spinner className="text-term-prompt" />
+        <span>reading {kind === "report" ? "the office" : "your companies"}…</span>
+      </p>
+    );
+  }
+
+  return (
+    <div className="my-2">
+      {kind === "report" ? (
+        <ReportView report={report!} onOpenAgent={onOpenAgent} />
+      ) : (
+        <OfficeList offices={offices!.offices} activeOrgId={offices!.activeOrgId} />
+      )}
+    </div>
   );
 };
 
@@ -1021,11 +1245,11 @@ const Composer: FC<{
         value={value}
         onChange={(e) => onChange(e.target.value)}
         onKeyDown={handleKeyDown}
-        placeholder={
-          who
-            ? `pesan untuk ${who}…  (/siapa untuk pindah)`
-            : "ketik pesan…  (/help untuk perintah)"
-        }
+        // Satu frasa, tanpa petunjuk dalam kurung — bentuk pabrik-startup
+        // ("describe what you want…"). Kurung yang menempel di placeholder
+        // membuat kotak ketik jadi tempat menaruh dokumentasi, dan itu terbaca
+        // tiap kali orang menatapnya, bukan sekali saat dia butuh.
+        placeholder={who ? `message ${who}…` : "describe the work…"}
         className="caret-term-prompt placeholder:text-term-dim max-h-40 min-h-8 w-full flex-1 resize-none bg-transparent py-1 text-sm leading-6 outline-none"
         rows={1}
         autoFocus

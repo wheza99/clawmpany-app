@@ -46,22 +46,22 @@ export const UTILITY_CATALOG: Utility[] = [
   {
     key: "washarp_whatsapp",
     name: "WhatsApp (Washarp)",
-    summary: "Membaca dan membalas WhatsApp bisnis lewat nomor yang sudah kamu sambungkan.",
+    summary: "Reads and answers business WhatsApp through a number you have already linked.",
     examples: [
-      "Menyapu pesan belum dibaca di semua nomor tiap pagi",
-      "Membalas pertanyaan berulang dari calon pelanggan",
-      "Merangkum percakapan panjang jadi satu paragraf keputusan",
+      "Sweeping unread messages across every number each morning",
+      "Answering the questions leads ask over and over",
+      "Boiling a long thread down to one paragraph of decisions",
     ],
     requires: ["CLAWMPANY_MCP_WASHARP_URL"],
     caution:
-      "Pesan terkirim sampai ke orang sungguhan dan tidak bisa ditarik. Biarkan konfirmasi kirim tetap menyala.",
+      "A sent message reaches a real person and cannot be taken back. Leave send confirmation switched on.",
     build: () => {
       const url = env("CLAWMPANY_MCP_WASHARP_URL");
       if (!url) return null;
       const token = env("CLAWMPANY_MCP_WASHARP_TOKEN");
       return {
         name: "washarp",
-        description: "WhatsApp — baca chat, kirim pesan, sapu pesan belum dibaca.",
+        description: "WhatsApp — read chats, send messages, sweep unread.",
         transport: "http",
         url,
         headers: bearer(token),
@@ -71,12 +71,12 @@ export const UTILITY_CATALOG: Utility[] = [
   },
   {
     key: "tavily_web",
-    name: "Pencarian web (Tavily)",
-    summary: "Mencari dan membaca halaman web supaya jawabannya berdasar kenyataan hari ini.",
+    name: "Web search (Tavily)",
+    summary: "Searches and reads the web so answers rest on what is true today.",
     examples: [
-      "Mengecek harga atau regulasi terbaru sebelum menyusun penawaran",
-      "Mencari kabar tentang pesaing untuk laporan mingguan",
-      "Memverifikasi klaim sebelum masuk ke konten",
+      "Checking current prices or regulations before drafting a quote",
+      "Looking up competitor news for the weekly report",
+      "Verifying a claim before it goes into content",
     ],
     requires: ["CLAWMPANY_MCP_TAVILY_KEY"],
     build: () => {
@@ -84,7 +84,7 @@ export const UTILITY_CATALOG: Utility[] = [
       if (!key) return null;
       return {
         name: "tavily_mcp",
-        description: "Pencarian web langsung.",
+        description: "Live web search.",
         transport: "stdio",
         command: "npx",
         args: ["-y", "tavily-mcp@latest"],
@@ -95,11 +95,11 @@ export const UTILITY_CATALOG: Utility[] = [
   },
   {
     key: "pabrik_chats",
-    name: "Arsip percakapan (Pabrik)",
-    summary: "Membaca kembali percakapan lama supaya keputusan tidak diulang dari nol.",
+    name: "Conversation archive (Pabrik)",
+    summary: "Reads old conversations back so decisions are not made twice from scratch.",
     examples: [
-      "Mencari apa yang dulu diputuskan tentang satu klien",
-      "Menyusun ringkasan dari beberapa sesi yang terpisah",
+      "Finding what was decided about a client back then",
+      "Pulling one summary out of several separate sessions",
     ],
     requires: ["CLAWMPANY_MCP_PABRIK_URL"],
     build: () => {
@@ -108,7 +108,7 @@ export const UTILITY_CATALOG: Utility[] = [
       const token = env("CLAWMPANY_MCP_PABRIK_TOKEN");
       return {
         name: "pabrik",
-        description: "Arsip percakapan tersimpan.",
+        description: "Stored conversation archive.",
         transport: "http",
         url,
         headers: bearer(token),

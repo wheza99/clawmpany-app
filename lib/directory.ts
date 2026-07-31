@@ -32,7 +32,7 @@ export async function officeDirectory(office: Office): Promise<Colleague[]> {
     {
       id: CONCIERGE_AGENT_ID,
       name: boss?.name || "Clawmpany",
-      title: "manajer gedung — rekrut, jadwal, peralatan",
+      title: "building manager — hiring, schedules, equipment",
     },
   ];
 
@@ -50,7 +50,7 @@ export async function officeDirectory(office: Office): Promise<Colleague[]> {
 export function roleOf(agent: { description: string }): string {
   const head = (agent.description || "").split(" | ")[0].trim();
   if (!head || head.startsWith("- **Name:**") || looksUnconfigured(head)) {
-    return "belum ada jabatan";
+    return "no role yet";
   }
   return head.length > 60 ? `${head.slice(0, 57)}…` : head;
 }

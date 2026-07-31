@@ -22,12 +22,12 @@ import { cn } from "@/lib/utils";
 /** Semua pola ditafsirkan di Asia/Jakarta — lihat cronPayload di lib/qwenpaw.ts. */
 const PRESETS: Array<{ label: string; cron: string }> = [
   { label: "Tiap pagi, 08:00", cron: "0 8 * * *" },
-  { label: "Tiap pagi kerja, 09:00 (Sen–Jum)", cron: "0 9 * * 1-5" },
-  { label: "Tiap sore kerja, 17:00 (Sen–Jum)", cron: "0 17 * * 1-5" },
+  { label: "Every working morning, 09:00 (Mon–Fri)", cron: "0 9 * * 1-5" },
+  { label: "Every working evening, 17:00 (Mon–Fri)", cron: "0 17 * * 1-5" },
   { label: "Tiap Senin pagi, 09:00", cron: "0 9 * * 1" },
   { label: "Tiap Jumat sore, 16:00", cron: "0 16 * * 5" },
   { label: "Tiap awal bulan, 09:00", cron: "0 9 1 * *" },
-  { label: "Tiap jam", cron: "0 * * * *" },
+  { label: "Every hour", cron: "0 * * * *" },
 ];
 
 interface JobState {
@@ -88,11 +88,11 @@ export function SchedulePanel({
     try {
       const res = await fetch(base);
       const data = (await res.json()) as { jobs?: Job[]; error?: string };
-      if (!res.ok) throw new Error(data.error || `Gagal memuat (${res.status}).`);
+      if (!res.ok) throw new Error(data.error || `Could not load (${res.status}).`);
       setJobs(data.jobs ?? []);
       setError(null);
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Gagal memuat jadwal.");
+      setError(e instanceof Error ? e.message : "Could not load schedules.");
     } finally {
       // Dimatikan di sini, bukan di effect: pemuatan pertama dan tiap muat
       // ulang sesudah aksi lewat jalur yang sama, jadi keterangan "Membaca…"
@@ -114,11 +114,11 @@ export function SchedulePanel({
     try {
       const res = await run();
       const data = (await res.json()) as { error?: string };
-      if (!res.ok) throw new Error(data.error || `Gagal (${res.status}).`);
+      if (!res.ok) throw new Error(data.error || `Failed (${res.status}).`);
       await load();
       return true;
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Gagal.");
+      setError(e instanceof Error ? e.message : "Failed.");
       return false;
     } finally {
       setBusy(null);
@@ -158,15 +158,15 @@ export function SchedulePanel({
   }
 
   return (
-    <TermBlock label={`Jadwal kerja · ${jobs.length}`} tone={jobs.length ? "default" : "dim"}>
+    <TermBlock label={`work schedule · ${jobs.length}`} tone={jobs.length ? "default" : "dim"}>
       {error ? <p className="text-term-warn mb-2 text-xs">{error}</p> : null}
 
       {loading ? (
-        <p className="text-term-dim text-xs">Membaca jadwal…</p>
+        <p className="text-term-dim text-xs">Reading schedules…</p>
       ) : jobs.length === 0 ? (
         <p className="text-term-dim mb-3 text-xs">
-          Belum ada. Tanpa jadwal, dia hanya bekerja saat kamu mengetik — dan itu
-          berarti kamu tetap yang jadi mesinnya.
+          None yet. Without a schedule they only work when you type — which
+          means you are still the machine.
         </p>
       ) : (
         <ul className="divide-border mb-3 divide-y">
@@ -186,7 +186,7 @@ export function SchedulePanel({
                 {job.state?.next_run_at ? ` · berikutnya ${when(job.state.next_run_at)}` : ""}
                 {job.state?.last_run_at
                   ? ` · terakhir ${when(job.state.last_run_at)}`
-                  : " · belum pernah jalan"}
+                  : " · never run"}
               </div>
 
               {job.state?.last_error ? (
@@ -221,7 +221,7 @@ export function SchedulePanel({
                   >
                     {openResult === job.id ? "Tutup hasil" : "Lihat hasil"}
                   </Mini>
-                  <Mini onClick={() => startEdit(job)}>Ubah</Mini>
+                  <Mini onClick={() => startEdit(job)}>Edit</Mini>
                   <Mini
                     busy={busy === `toggle:${job.id}`}
                     onClick={() =>
@@ -234,7 +234,7 @@ export function SchedulePanel({
                       )
                     }
                   >
-                    {job.enabled ? "Matikan" : "Nyalakan"}
+                    {job.enabled ? "Turn off" : "Turn on"}
                   </Mini>
                   <Mini
                     tone="warn"
@@ -272,7 +272,7 @@ export function SchedulePanel({
           />
         </div>
       ) : loading ? null : (
-        <Mini onClick={startAdd}>+ Tambah jadwal</Mini>
+        <Mini onClick={startAdd}>+ Add schedule</Mini>
       )}
     </TermBlock>
   );
@@ -297,7 +297,7 @@ function Editor({
 
   return (
     <div className="mt-2 space-y-2">
-      <Field label="Nama jadwal">
+      <Field label="Schedule name">
         <input
           value={draft.name}
           onChange={(e) => setDraft({ ...draft, name: e.target.value })}
@@ -306,7 +306,7 @@ function Editor({
         />
       </Field>
 
-      <Field label="Kapan">
+      <Field label="When">
         <select
           value={known ? draft.cron : "__custom"}
           onChange={(e) =>
@@ -342,7 +342,7 @@ function Editor({
           value={draft.instruction}
           onChange={(e) => setDraft({ ...draft, instruction: e.target.value })}
           rows={4}
-          placeholder="Apa yang harus dia kerjakan, dan bentuk laporannya seperti apa."
+          placeholder="What they should do, and what the report should look like."
           className="border-border focus:border-term-prompt w-full resize-y border bg-transparent px-2 py-1 text-sm outline-none"
         />
       </Field>
@@ -381,10 +381,10 @@ function JobResult({ agentId, jobId }: { agentId: string; jobId: string }) {
         );
         const body = (await res.json()) as Result & { error?: string };
         if (!alive) return;
-        if (!res.ok) throw new Error(body.error || `Gagal (${res.status}).`);
+        if (!res.ok) throw new Error(body.error || `Failed (${res.status}).`);
         setData(body);
       } catch (e) {
-        if (alive) setError(e instanceof Error ? e.message : "Gagal membaca hasil.");
+        if (alive) setError(e instanceof Error ? e.message : "Could not read the result.");
       }
     })();
     return () => {
@@ -393,7 +393,7 @@ function JobResult({ agentId, jobId }: { agentId: string; jobId: string }) {
   }, [agentId, jobId]);
 
   if (error) return <p className="text-term-warn mt-2 text-[11px]">{error}</p>;
-  if (!data) return <p className="text-term-dim mt-2 text-[11px]">Membaca hasil…</p>;
+  if (!data) return <p className="text-term-dim mt-2 text-[11px]">Reading the result…</p>;
 
   const last = data.messages.filter((m) => m.role === "assistant").at(-1);
 
@@ -487,7 +487,7 @@ function Mini({
 
 /** Cron yang dikenal dibaca sebagai kalimat; sisanya ditampilkan apa adanya. */
 function humanCron(cron: string | null): string {
-  if (!cron) return "tanpa pola";
+  if (!cron) return "no pattern";
   const hit = PRESETS.find((p) => p.cron === cron);
   return hit ? hit.label : cron;
 }

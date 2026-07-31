@@ -44,7 +44,7 @@ export async function POST(req: Request) {
   const office = await currentOffice();
   if (!office.writable) {
     return NextResponse.json(
-      { error: "Masuk dulu sebelum merekrut karyawan." },
+      { error: "Sign in before hiring an employee." },
       { status: 401 },
     );
   }
@@ -97,7 +97,7 @@ export async function POST(req: Request) {
         error:
           e instanceof Error
             ? `Agent dibuat tapi identitasnya gagal ditulis, jadi dibatalkan: ${e.message}`
-            : "Gagal menulis identitas agent.",
+            : "Could not write the agent identity.",
       },
       { status: 502 },
     );
@@ -127,8 +127,8 @@ export async function POST(req: Request) {
       {
         error:
           e instanceof Error
-            ? `Gagal mencatat karyawan di kantor: ${e.message}`
-            : "Gagal mencatat karyawan di kantor.",
+            ? `Could not add the employee to the office: ${e.message}`
+            : "Could not add the employee to the office.",
       },
       { status: 500 },
     );

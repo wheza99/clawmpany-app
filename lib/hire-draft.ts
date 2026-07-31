@@ -96,24 +96,24 @@ export function readDraft(
 
   const roleKey = typeof o.roleKey === "string" ? o.roleKey : "";
   const role = findRole(roleKey);
-  if (!role) return { error: `Jabatan "${roleKey}" tidak ada di katalog.` };
+  if (!role) return { error: `Role "${roleKey}" is not in the catalogue.` };
 
   const name = typeof o.name === "string" ? o.name.trim() : "";
-  if (!name) return { error: "Usulan tidak menyebut nama." };
+  if (!name) return { error: "The proposal gives no name." };
   if (name.length > MAX_NAME_CHARS) {
-    return { error: `Nama terlalu panjang (maks ${MAX_NAME_CHARS}).` };
+    return { error: `Name is too long (max ${MAX_NAME_CHARS}).` };
   }
 
   const rawFiles = o.files;
   if (!rawFiles || typeof rawFiles !== "object") {
-    return { error: "Usulan tidak membawa isi AGENTS.md / PROFILE.md / SOUL.md." };
+    return { error: "The proposal carries no AGENTS.md / PROFILE.md / SOUL.md content." };
   }
   const source = rawFiles as Record<string, unknown>;
 
   const files = {} as Record<BackboneFile, string>;
   for (const key of BACKBONE_FILES) {
     const value = source[key];
-    if (typeof value !== "string") return { error: `${key} tidak ada di usulan.` };
+    if (typeof value !== "string") return { error: `${key} is missing from the proposal.` };
     if (value.length > MAX_FILE_CHARS) {
       return { error: `${key} terlalu panjang (maks ${MAX_FILE_CHARS} karakter).` };
     }
@@ -123,7 +123,7 @@ export function readDraft(
   // PROFILE.md kosong = kursi kosong, yaitu tepat hal yang seluruh alur ini ada
   // untuk mencegahnya. Ditolak di sini, bukan ditulis lalu ditandai merah.
   if (!files["PROFILE.md"].trim()) {
-    return { error: "PROFILE.md kosong — itu yang membuat dia tahu harus mengerjakan apa." };
+    return { error: "PROFILE.md is empty — it is what tells them what to do." };
   }
 
   const description =
@@ -169,7 +169,7 @@ export function scanForHireDraft(text: string): DraftScan {
     const after = text.slice(m.index + m[0].length);
     const parsed = safeParse(m[1]);
     if (parsed === undefined) {
-      return { state: "broken", before, after, reason: "Usulannya bukan JSON yang sah." };
+      return { state: "broken", before, after, reason: "The proposal is not valid JSON." };
     }
     const read = readDraft(parsed);
     return "draft" in read

@@ -29,10 +29,10 @@ async function guard(params: Params["params"]) {
   const { id } = await params;
   const office = await currentOffice();
   if (!office.roster.includes(id)) {
-    return { error: NextResponse.json({ error: "Tidak ditemukan." }, { status: 404 }) };
+    return { error: NextResponse.json({ error: "Not found." }, { status: 404 }) };
   }
   if (!office.writable) {
-    return { error: NextResponse.json({ error: "Masuk dulu." }, { status: 401 }) };
+    return { error: NextResponse.json({ error: "Sign in first." }, { status: 401 }) };
   }
   return { agentId: id };
 }
@@ -66,15 +66,15 @@ function readDraft(body: Record<string, unknown>): Draft | string {
   const emoji = typeof body.emoji === "string" ? body.emoji.trim() : "";
 
   if (!NAME_RE.test(name)) {
-    return "Nama keahlian: huruf/angka, spasi, - dan _ saja, maksimal 60 karakter.";
+    return "Skill name: letters/digits, spaces, - and _ only, 60 characters at most.";
   }
   // Deskripsi adalah PEMICU keahlian — tanpa itu, keahlian ini tidak akan
   // pernah dipanggil karena agent tidak punya cara tahu kapan ia relevan.
   if (!description) {
-    return "Tulis kapan keahlian ini dipakai — itu yang membuat dia tahu kapan memanggilnya.";
+    return "Write when this skill applies — it is what tells them when to reach for it.";
   }
   if (!skillBody(text).trim()) {
-    return "Isi langkah-langkahnya — keahlian kosong tidak mengubah apa pun.";
+    return "Fill in the steps — an empty skill changes nothing.";
   }
   return { name, description, body: text, emoji };
 }
@@ -100,7 +100,7 @@ export async function GET(_req: Request, { params }: Params) {
     }));
     return NextResponse.json({ skills });
   } catch (e) {
-    return failure(e, "Gagal membaca keahlian.");
+    return failure(e, "Could not read skills.");
   }
 }
 
@@ -120,7 +120,7 @@ export async function POST(req: Request, { params }: Params) {
     await createSkill(g.agentId, { ...draft, enabled: body.enabled !== false });
     return NextResponse.json({ name: draft.name });
   } catch (e) {
-    return failure(e, "Gagal membuat keahlian.");
+    return failure(e, "Could not create the skill.");
   }
 }
 
@@ -145,7 +145,7 @@ export async function PUT(req: Request, { params }: Params) {
     await saveSkill(g.agentId, { ...draft, sourceName });
     return NextResponse.json({ name: draft.name });
   } catch (e) {
-    return failure(e, "Gagal menyimpan keahlian.");
+    return failure(e, "Could not save the skill.");
   }
 }
 
@@ -158,14 +158,14 @@ export async function PATCH(req: Request, { params }: Params) {
 
   const name = typeof body.name === "string" ? body.name.trim() : "";
   if (!name || typeof body.enabled !== "boolean") {
-    return NextResponse.json({ error: "Butuh name dan enabled." }, { status: 400 });
+    return NextResponse.json({ error: "name and enabled are required." }, { status: 400 });
   }
 
   try {
     await setSkillEnabled(g.agentId, name, body.enabled);
     return NextResponse.json({ name, enabled: body.enabled });
   } catch (e) {
-    return failure(e, "Gagal mengubah keahlian.");
+    return failure(e, "Could not change the skill.");
   }
 }
 
@@ -180,6 +180,6 @@ export async function DELETE(req: Request, { params }: Params) {
     await deleteSkill(g.agentId, name);
     return NextResponse.json({ name });
   } catch (e) {
-    return failure(e, "Gagal menghapus keahlian.");
+    return failure(e, "Could not delete the skill.");
   }
 }

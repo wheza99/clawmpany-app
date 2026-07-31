@@ -29,10 +29,10 @@ async function guard(params: Params["params"]) {
   const { id } = await params;
   const office = await currentOffice();
   if (!office.roster.includes(id)) {
-    return { error: NextResponse.json({ error: "Tidak ditemukan." }, { status: 404 }) };
+    return { error: NextResponse.json({ error: "Not found." }, { status: 404 }) };
   }
   if (!office.writable) {
-    return { error: NextResponse.json({ error: "Masuk dulu." }, { status: 401 }) };
+    return { error: NextResponse.json({ error: "Sign in first." }, { status: 401 }) };
   }
   return { agentId: id };
 }
@@ -58,7 +58,7 @@ export async function GET(_req: Request, { params }: Params) {
     );
     return NextResponse.json({ installed: probed, catalog: offers() });
   } catch (e) {
-    return failure(e, "Gagal membaca peralatan.");
+    return failure(e, "Could not read equipment.");
   }
 }
 
@@ -76,7 +76,7 @@ export async function POST(req: Request, { params }: Params) {
   const utilityKey = typeof body.utilityKey === "string" ? body.utilityKey : "";
   const utility = findUtility(utilityKey);
   if (!utility) {
-    return NextResponse.json({ error: "Peralatan tidak dikenal." }, { status: 400 });
+    return NextResponse.json({ error: "Unknown equipment." }, { status: 400 });
   }
 
   // Peralatan yang env-nya belum diisi ditolak DI SINI, bukan dibiarkan lolos
@@ -86,7 +86,7 @@ export async function POST(req: Request, { params }: Params) {
   if (!spec) {
     return NextResponse.json(
       {
-        error: `Peralatan ini belum siap di server. Isi dulu: ${utility.requires.join(", ")}.`,
+        error: `This equipment is not ready on the server. Set these first: ${utility.requires.join(", ")}.`,
       },
       { status: 409 },
     );
@@ -95,7 +95,7 @@ export async function POST(req: Request, { params }: Params) {
   try {
     await installMcpServer(g.agentId, utility.key, spec);
   } catch (e) {
-    return failure(e, "Gagal memasang peralatan.");
+    return failure(e, "Could not fit the equipment.");
   }
 
   // Pemasangan sukses belum berarti tersambung — sekalian diuji supaya UI bisa
@@ -117,14 +117,14 @@ export async function PATCH(req: Request, { params }: Params) {
 
   const key = typeof body.key === "string" ? body.key : "";
   if (!key || typeof body.enabled !== "boolean") {
-    return NextResponse.json({ error: "Butuh key dan enabled." }, { status: 400 });
+    return NextResponse.json({ error: "key and enabled are required." }, { status: 400 });
   }
 
   try {
     await setMcpEnabled(g.agentId, key, body.enabled);
     return NextResponse.json({ key, enabled: body.enabled });
   } catch (e) {
-    return failure(e, "Gagal mengubah peralatan.");
+    return failure(e, "Could not change the equipment.");
   }
 }
 
@@ -139,6 +139,6 @@ export async function DELETE(req: Request, { params }: Params) {
     await uninstallMcpServer(g.agentId, key);
     return NextResponse.json({ key });
   } catch (e) {
-    return failure(e, "Gagal melepas peralatan.");
+    return failure(e, "Could not remove the equipment.");
   }
 }

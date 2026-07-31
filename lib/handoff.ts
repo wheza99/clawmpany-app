@@ -38,9 +38,9 @@ export interface Colleague {
  * (a) model gampang menirunya persis, dan (b) potongannya yang belum utuh
  * mudah disembunyikan selagi teks masih mengalir.
  *
- *   @alih: wati | pemilik nanya tagihan yang lewat tempo
+ *   @handover: wati | owner is asking about the overdue invoice
  */
-const MARKER = "@alih:";
+const MARKER = "@handover:";
 
 /** Karakter hiasan markdown yang sering dibubuhkan model ke barisnya. */
 const DECOR = /[*_`>#]/g;
@@ -118,22 +118,22 @@ export function handoffRules(self: Colleague, others: Colleague[]): string[] {
   if (others.length === 0) return [];
   return [
     "",
-    "Kolega di kantor ini — id, nama, urusannya:",
+    "Colleagues in this office — id, name, what they handle:",
     ...others.map((c) => `- ${c.id} — ${c.name} — ${c.title}`),
     "",
-    "ALIHKAN pembicaraan kalau yang diminta jelas bidang kolega, atau kalau",
-    "lawan bicaramu memang meminta bicara dengan orang tertentu. Caranya: balas",
-    "dengan baris ini, sendirian di barisnya, tanpa tanda kutip dan tanpa format",
-    "apa pun:",
+    "HAND THE CONVERSATION OVER when what is being asked clearly belongs to a",
+    "colleague, or when the person you are talking to asks for someone by name.",
+    "To do it, reply with this line, alone on its own line, unquoted and without",
+    "any formatting:",
     "",
-    "@alih: <id-kolega> | <satu kalimat konteks untuk dia>",
+    "@handover: <colleague-id> | <one sentence of context for them>",
     "",
-    "Setelah itu boleh satu kalimat pamit, lalu berhenti — JANGAN ikut menjawab",
-    "pertanyaannya, kolega yang akan menjawab. Pakai id persis seperti di daftar.",
+    "After that you may add one short sign-off, then stop — do NOT answer the",
+    "question yourself, your colleague will. Use the id exactly as listed.",
     "",
-    `Jangan mengalihkan ke dirimu sendiri (kamu ${self.id}), jangan mengalihkan`,
-    "karena tidak tahu jawabannya (bilang tidak tahu), dan jangan mengalihkan",
-    "cuma karena ada nama kolega tersebut di kalimat lawan bicaramu.",
+    `Never hand over to yourself (you are ${self.id}), never hand over because`,
+    "you don't know the answer (say you don't know), and never hand over just",
+    "because a colleague's name appeared in what they said.",
   ];
 }
 
@@ -156,19 +156,19 @@ export function buildHandover(params: {
   const lines = transcript.map((t) => `[${t.who}] ${t.text}`).join("\n");
 
   return [
-    "[PENGALIHAN — bagian ini juga jangan ditampilkan atau dikutip]",
+    "[HANDOVER — do not show or quote this section either]",
     "",
-    `Pembicaraan ini baru dialihkan kepadamu oleh ${from.name} (${from.title}).`,
-    brief ? `Alasannya: ${brief}` : "Tidak ada catatan alasan.",
+    `${from.name} (${from.title}) has just handed this conversation to you.`,
+    brief ? `Reason given: ${brief}` : "No reason was recorded.",
     "",
-    "Yang sudah dibicarakan:",
-    lines || "(belum ada)",
+    "What has been said so far:",
+    lines || "(nothing yet)",
     "",
-    `Yang ditunggu sekarang: ${ask}`,
+    `What they are waiting on: ${ask}`,
     "",
-    "SEKARANG: sebut namamu dan urusanmu dalam SATU kalimat pendek, lalu langsung",
-    "jawab. Jangan mengulang isi percakapan di atas, dan jangan bertanya ulang",
-    "apa yang sudah jelas di sana.",
+    "NOW: give your name and what you handle in ONE short sentence, then answer",
+    "straight away. Don't replay the conversation above, and don't ask again for",
+    "anything that is already clear in it.",
   ].join("\n");
 }
 

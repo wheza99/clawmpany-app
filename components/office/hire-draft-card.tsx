@@ -27,7 +27,7 @@ export function HireDraftCard({
   draft,
   onCancel,
   onHired,
-  label = "Usulan karyawan",
+  label = "hire proposal",
 }: {
   draft: HireDraft;
   /** Kalau ada, tombol Batal muncul. */
@@ -44,7 +44,7 @@ export function HireDraftCard({
   );
 
   const role = findRole(draft.roleKey);
-  const schedule = role?.suggestedSchedule?.label ?? "belum ada — atur setelah direkrut";
+  const schedule = role?.suggestedSchedule?.label ?? "none yet — set it after hiring";
 
   function toggle(key: string) {
     setOpen((current) => (current === key ? null : key));
@@ -68,13 +68,13 @@ export function HireDraftCard({
         scheduleWarning?: string | null;
       };
       if (!res.ok || !data.agentId) {
-        throw new Error(data.error || `Gagal merekrut (${res.status}).`);
+        throw new Error(data.error || `Could not hire (${res.status}).`);
       }
       setHired({ agentId: data.agentId, warning: data.scheduleWarning ?? null });
       onHired?.(data.agentId);
       router.refresh();
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Gagal merekrut.");
+      setError(e instanceof Error ? e.message : "Could not hire.");
     } finally {
       setBusy(false);
     }
@@ -84,12 +84,12 @@ export function HireDraftCard({
     return (
       <TermBlock label="Direkrut" className="my-2">
         <p className="text-sm">
-          {draft.name} sudah masuk kantor dan langsung memakai identitas yang
-          barusan kamu setujui.
+          {draft.name} has moved in and is already using the identity you just
+          approved.
         </p>
         {hired.warning ? (
           <p className="text-term-warn mt-1.5 text-xs">
-            Jadwal kerja pertamanya gagal dipasang: {hired.warning} — pasang dari
+            Their first schedule could not be set: {hired.warning} — set it from
             halaman {draft.name}.
           </p>
         ) : null}
@@ -106,9 +106,9 @@ export function HireDraftCard({
   return (
     <TermBlock label={label} className="my-2">
       <div className="space-y-0.5">
-        <TermRow label="nama">{draft.name}</TermRow>
+        <TermRow label="name">{draft.name}</TermRow>
         <TermRow label="jabatan">{role?.title ?? draft.roleKey}</TermRow>
-        <TermRow label="jadwal">{schedule}</TermRow>
+        <TermRow label="schedule">{schedule}</TermRow>
       </div>
 
       <p className="text-muted-foreground mt-2 text-xs leading-relaxed">
@@ -127,7 +127,7 @@ export function HireDraftCard({
         ))}
         <Fold
           title="json mentah"
-          hint="bentuk yang dikirim ke server"
+          hint="exactly what gets sent to the server"
           open={open === "json"}
           onToggle={() => toggle("json")}
         >
@@ -147,7 +147,7 @@ export function HireDraftCard({
           </TermButton>
         ) : null}
         <span className="text-term-dim text-[11px]">
-          Belum ada yang dibuat sampai kamu menekan Rekrut.
+          Nothing is created until you press Hire.
         </span>
       </div>
     </TermBlock>
@@ -174,9 +174,9 @@ function FileFold({
 }
 
 const FILE_HINT: Record<BackboneFile, string> = {
-  "AGENTS.md": "apa yang dia kerjakan, dan urutannya tiap sesi",
-  "PROFILE.md": "siapa dirinya dan cara dia melapor",
-  "SOUL.md": "cara dia membawa diri",
+  "AGENTS.md": "what they do, and in what order, each session",
+  "PROFILE.md": "who they are and how they report",
+  "SOUL.md": "how they carry themselves",
 };
 
 function Fold({

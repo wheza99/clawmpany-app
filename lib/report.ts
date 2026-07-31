@@ -102,9 +102,9 @@ export interface OfficeReport {
  */
 function roleOf(agent: QwenPawAgent): string {
   const desc = (agent.description || "").trim();
-  if (!desc) return "Belum ada jabatan";
+  if (!desc) return "No role yet";
   const head = desc.split(" | ")[0].trim();
-  if (!head || head.startsWith("- **Name:**")) return "Belum ada jabatan";
+  if (!head || head.startsWith("- **Name:**")) return "No role yet";
   return head.length > 90 ? `${head.slice(0, 87)}…` : head;
 }
 
@@ -173,7 +173,7 @@ export async function buildBrief(office: Office): Promise<OfficeBrief> {
   try {
     directory = await listAgents();
   } catch (e) {
-    return { ...base, error: e instanceof Error ? e.message : "QwenPaw tidak terjangkau." };
+    return { ...base, error: e instanceof Error ? e.message : "QwenPaw is unreachable." };
   }
   const byId = new Map(directory.map((a) => [a.id, a]));
 
@@ -231,7 +231,7 @@ export async function buildReport(office: Office): Promise<OfficeReport> {
   try {
     directory = await listAgents();
   } catch (e) {
-    return { ...base, error: e instanceof Error ? e.message : "QwenPaw tidak bisa dihubungi." };
+    return { ...base, error: e instanceof Error ? e.message : "QwenPaw could not be reached." };
   }
 
   const byId = new Map(directory.map((a) => [a.id, a]));
@@ -305,8 +305,8 @@ export async function buildReport(office: Office): Promise<OfficeReport> {
     if ("missing" in row) {
       attention.push({
         level: "blocked",
-        headline: `Karyawan \`${row.missing}\` tidak ada lagi di QwenPaw.`,
-        action: "Hapus dari roster, atau rekrut ulang dengan nama yang sama.",
+        headline: `Employee \`${row.missing}\` no longer exists in QwenPaw.`,
+        action: "Remove it from the roster, or hire again under the same name.",
         agentId: row.missing,
       });
       continue;
@@ -354,7 +354,7 @@ export async function buildReport(office: Office): Promise<OfficeReport> {
         attention.push({
           level: "blocked",
           headline: `Jadwal "${job.name}" (${agent.name}) gagal.`,
-          action: state.last_error?.slice(0, 160) || "Buka detailnya dan jalankan ulang.",
+          action: state.last_error?.slice(0, 160) || "Open the details and run it again.",
           agentId: agent.id,
         });
       }
@@ -366,23 +366,23 @@ export async function buildReport(office: Office): Promise<OfficeReport> {
     if (!configured) {
       attention.push({
         level: "idle",
-        headline: `${agent.name} belum punya identitas.`,
-        action: "Isi peran & cara kerjanya — tanpa itu dia tidak akan mengerjakan apa pun.",
+        headline: `${agent.name} has no identity yet.`,
+        action: "Fill in their role and how they work — without it they do nothing.",
         agentId: agent.id,
       });
     } else if (enabledJobs.length === 0) {
       attention.push({
         level: "idle",
-        headline: `${agent.name} tidak punya jadwal kerja.`,
-        action: "Beri jadwal supaya dia bekerja tanpa kamu buka aplikasi ini.",
+        headline: `${agent.name} has no work schedule.`,
+        action: "Give them a schedule so they work without you opening this app.",
         agentId: agent.id,
       });
     } else if (activeTools === 0) {
       attention.push({
         level: "idle",
-        headline: `${agent.name} bekerja tanpa peralatan.`,
+        headline: `${agent.name} works without equipment.`,
         action:
-          "Pasang peralatan supaya dia menyentuh data sungguhan, bukan menalar dari ingatan.",
+          "Fit equipment so they touch real data instead of reasoning from memory.",
         agentId: agent.id,
       });
     }

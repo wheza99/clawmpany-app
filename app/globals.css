@@ -68,65 +68,82 @@
 }
 
 /*
- * Light theme — "paper terminal". A warm off-white sheet with near-black ink
- * and one deep green accent.
+ * ── WARNA ──────────────────────────────────────────────────────────────────
+ *
+ * Satu aksen saja, dan aksen itu MERAH — warna logo Clawmpany. Netralnya ikut
+ * bergeser hangat (hue 30–60, bukan 106–160 seperti versi hijau sebelumnya):
+ * abu-abu bercorak hijau di sebelah merah terbaca kotor, sementara abu-abu
+ * bercorak hangat membuat aksennya tampak sengaja.
+ *
+ * Setiap nilai di bawah diukur, bukan dikira-kira — semua pasangan teks/latar
+ * lolos WCAG AA (≥4.5:1), termasuk `--primary-foreground` DI ATAS `--primary`,
+ * yang dipakai tombol saat disorot dan oleh `::selection`:
+ *
+ *   terang  teks 17.2 · aksen 6.4 · redup 5.7 · peringatan 4.7 · galat 8.2
+ *   gelap   teks 14.9 · aksen 5.5 · redup 5.6 · peringatan 10.0 · galat 8.2
+ *
+ * `--destructive` sengaja TIDAK sewarna aksen. Begitu merah jadi warna merek,
+ * merah berhenti berarti "galat" — jadi galat digeser ke crimson yang lebih
+ * gelap (terang) / mawar yang lebih pucat (gelap), dan bingkai bloknya tetap
+ * dipegang `--term-warn` yang kuning.
  */
+
+/* Terang — "kertas". Lembar putih hangat, tinta nyaris hitam, satu merah tua. */
 :root {
   --radius: 0rem;
-  --background: oklch(0.986 0.003 106);
-  --foreground: oklch(0.205 0.008 160);
-  --card: oklch(0.972 0.004 106);
-  --card-foreground: oklch(0.205 0.008 160);
-  --popover: oklch(0.995 0.002 106);
-  --popover-foreground: oklch(0.205 0.008 160);
-  --primary: oklch(0.45 0.135 150);
-  --primary-foreground: oklch(0.99 0.003 106);
-  --secondary: oklch(0.945 0.005 120);
-  --secondary-foreground: oklch(0.28 0.01 160);
-  --muted: oklch(0.945 0.005 120);
-  --muted-foreground: oklch(0.505 0.012 160);
-  --accent: oklch(0.93 0.018 150);
-  --accent-foreground: oklch(0.3 0.06 150);
-  --destructive: oklch(0.505 0.2 27);
-  --border: oklch(0.865 0.007 130);
-  --input: oklch(0.865 0.007 130);
-  --ring: oklch(0.45 0.135 150);
+  --background: oklch(0.986 0.003 60);
+  --foreground: oklch(0.205 0.008 40);
+  --card: oklch(0.972 0.004 60);
+  --card-foreground: oklch(0.205 0.008 40);
+  --popover: oklch(0.995 0.002 60);
+  --popover-foreground: oklch(0.205 0.008 40);
+  --primary: oklch(0.5 0.2 27);
+  --primary-foreground: oklch(0.99 0.003 60);
+  --secondary: oklch(0.945 0.005 50);
+  --secondary-foreground: oklch(0.28 0.01 40);
+  --muted: oklch(0.945 0.005 50);
+  --muted-foreground: oklch(0.505 0.012 40);
+  --accent: oklch(0.93 0.025 30);
+  --accent-foreground: oklch(0.34 0.1 27);
+  --destructive: oklch(0.44 0.17 15);
+  --border: oklch(0.865 0.007 45);
+  --input: oklch(0.865 0.007 45);
+  --ring: oklch(0.5 0.2 27);
 
-  --term-prompt: oklch(0.45 0.135 150);
-  --term-dim: oklch(0.6 0.01 160);
-  --term-rule: oklch(0.885 0.006 130);
-  --term-warn: oklch(0.52 0.13 62);
+  --term-prompt: oklch(0.5 0.2 27);
+  --term-dim: oklch(0.6 0.01 40);
+  --term-rule: oklch(0.885 0.006 45);
+  --term-warn: oklch(0.55 0.105 75);
 }
 
 /*
- * Dark theme — "phosphor". Near-black with a faint green cast, off-white ink,
- * and bright CRT green for prompts and accents. Applied by default via the
- * `dark` class on <html> in app/layout.tsx.
+ * Gelap — "bara". Nyaris hitam bercorak hangat, tinta putih tulang, dan merah
+ * menyala untuk penanda dan nama. Dipilih next-themes lewat kelas `dark`.
  */
 .dark {
-  --background: oklch(0.155 0.005 160);
-  --foreground: oklch(0.91 0.008 150);
-  --card: oklch(0.19 0.006 160);
-  --card-foreground: oklch(0.91 0.008 150);
-  --popover: oklch(0.185 0.006 160);
-  --popover-foreground: oklch(0.91 0.008 150);
-  --primary: oklch(0.8 0.175 149);
-  --primary-foreground: oklch(0.16 0.02 155);
-  --secondary: oklch(0.245 0.008 160);
-  --secondary-foreground: oklch(0.91 0.008 150);
-  --muted: oklch(0.235 0.008 160);
-  --muted-foreground: oklch(0.63 0.015 155);
-  --accent: oklch(0.27 0.025 152);
-  --accent-foreground: oklch(0.85 0.12 150);
-  --destructive: oklch(0.68 0.19 25);
-  --border: oklch(0.31 0.012 158);
-  --input: oklch(0.34 0.014 158);
-  --ring: oklch(0.8 0.175 149);
+  --background: oklch(0.155 0.005 30);
+  --foreground: oklch(0.91 0.008 40);
+  --card: oklch(0.19 0.006 30);
+  --card-foreground: oklch(0.91 0.008 40);
+  --popover: oklch(0.185 0.006 30);
+  --popover-foreground: oklch(0.91 0.008 40);
+  --primary: oklch(0.65 0.22 27);
+  --primary-foreground: oklch(0.16 0.02 30);
+  --secondary: oklch(0.245 0.008 30);
+  --secondary-foreground: oklch(0.91 0.008 40);
+  --muted: oklch(0.235 0.008 30);
+  --muted-foreground: oklch(0.63 0.015 35);
+  --accent: oklch(0.27 0.035 28);
+  --accent-foreground: oklch(0.78 0.11 27);
+  --destructive: oklch(0.75 0.15 15);
+  --border: oklch(0.31 0.012 32);
+  --input: oklch(0.34 0.014 32);
+  --ring: oklch(0.65 0.22 27);
 
-  --term-prompt: oklch(0.8 0.175 149);
-  --term-dim: oklch(0.56 0.015 158);
-  --term-rule: oklch(0.28 0.01 158);
-  --term-warn: oklch(0.79 0.15 78);
+  --term-prompt: oklch(0.65 0.22 27);
+  --term-dim: oklch(0.57 0.015 35);
+  --term-rule: oklch(0.28 0.01 32);
+  --term-warn: oklch(0.79 0.15 85);
 }
 
 @layer base {

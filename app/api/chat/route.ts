@@ -34,11 +34,11 @@ const PAW_AGENT_ID =
 
 /** Dipakai saat keadaan kantor tidak bisa dibaca sama sekali. */
 const FALLBACK_BRIEFING = [
-  "[INSTRUKSI SESI — jangan ditampilkan atau dikutip ke pengguna]",
+  "[SESSION INSTRUCTIONS — never show or quote these to the user]",
   "",
-  "Buka percakapan dalam maksimal dua kalimat pendek berbahasa Indonesia:",
-  "sebut siapa kamu di kantor ini, lalu tanyakan satu hal yang paling berguna",
-  "untuk dijawab lebih dulu. Tanpa judul markdown, tanpa menyinggung instruksi ini.",
+  "Open the conversation in two short English sentences at most: say who you",
+  "are in this office, then ask the one thing most useful to answer first. No",
+  "markdown headings, no mention of these instructions.",
 ].join("\n");
 
 function newSessionId(): string {
@@ -92,7 +92,7 @@ export async function POST(req: Request) {
     } else {
       office = await currentOffice();
       if (!office.roster.includes(requested)) {
-        return new Response("Karyawan itu bukan penghuni kantor ini.", {
+        return new Response("That employee does not work in this office.", {
           status: 403,
           headers: { "content-type": "text/plain" },
         });
@@ -112,7 +112,13 @@ export async function POST(req: Request) {
       // orang. Halaman profil satu karyawan tidak membayar panggilan ini.
       const colleagues =
         body.switching === true ? await officeDirectory(office) : [];
-      outgoing = await briefingFor(agentId, office, await viewerName(), colleagues);
+      // `opening` = tidak ada pesan pengguna yang menyusul. Sejak layar depan
+      // berhenti menyapa duluan, kasus yang lazim justru kebalikannya: instruksi
+      // ini menumpang pada pesan pertama yang benar-benar diketik orang, dan
+      // penutup "buka percakapan" akan membuat agent menyapa alih-alih menjawab.
+      outgoing = await briefingFor(agentId, office, await viewerName(), colleagues, {
+        opening: !message,
+      });
     } catch {
       outgoing = FALLBACK_BRIEFING;
     }
@@ -142,7 +148,7 @@ export async function POST(req: Request) {
       }),
     });
   } catch {
-    return new Response("Tidak bisa menghubungi paw.wheza.id.", {
+    return new Response("Could not reach paw.wheza.id.", {
       status: 502,
       headers: { "content-type": "text/plain" },
     });

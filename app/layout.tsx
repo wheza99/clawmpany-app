@@ -2,7 +2,6 @@ import type { Metadata, Viewport } from "next";
 import { Geist_Mono } from "next/font/google";
 import { ClerkProvider } from "@clerk/nextjs";
 import { ThemeProvider } from "@/components/theme-provider";
-import { OfficeSidebar } from "@/components/office/sidebar";
 import "./globals.css";
 
 import { authEnabled } from "@/lib/office";
@@ -16,17 +15,17 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Clawmpany — kantor untuk AI agent",
+  title: "Clawmpany — an office for AI agents",
   description:
-    "Rekrut agent, beri jadwal kerja, baca laporannya. Clawmpany adalah gedungnya, bukan agentnya.",
+    "AI employees that work on a schedule. Clawmpany is the building, not the agent.",
 };
 
 export const viewport: Viewport = {
   // Match the chrome to the two themes so mobile browsers don't frame a
   // near-black terminal in a white status bar.
   themeColor: [
-    { media: "(prefers-color-scheme: light)", color: "#fbfaf7" },
-    { media: "(prefers-color-scheme: dark)", color: "#0d1210" },
+    { media: "(prefers-color-scheme: light)", color: "#fcfaf8" },
+    { media: "(prefers-color-scheme: dark)", color: "#0e0b0b" },
   ],
 };
 
@@ -48,24 +47,21 @@ export default function RootLayout({
   // <html> before React hydrates, so the server and client markup differ on
   // that one attribute — hence suppressHydrationWarning.
   const shell = (
-    <html lang="id" suppressHydrationWarning className={geistMono.variable}>
+    <html lang="en" suppressHydrationWarning className={geistMono.variable}>
       <body className="bg-background text-foreground min-h-full font-mono antialiased">
         <ThemeProvider>
           {/*
             Kerangka aplikasi: layar adalah bingkainya, isinya yang menggulung.
-            `flex-col-reverse` menaruh rel di BAWAH pada ponsel tanpa position
-            fixed — jadi tidak ada isi yang tertutup dan tidak ada padding
-            kompensasi yang harus dijaga di tiap halaman.
+            Tanpa rel navigasi — tiap halaman membuka dengan `AppHeader`-nya
+            sendiri (components/office/app-header.tsx) dan mengurus gulungannya
+            sendiri di bawah pita itu.
 
-            Dulu tiap halaman merender header-nya sendiri. Menaruhnya di sini
-            berarti navigasi tidak ikut dirender ulang saat berpindah halaman:
-            popover Clerk yang sedang terbuka tetap terbuka, dan rel tidak
-            berkedip.
+            Bingkai ini yang menjaga `h-full` di halaman berarti "setinggi
+            layar": halaman chat menggantungkan seluruh tata letaknya pada itu,
+            karena header dan kotak ketik harus diam sementara transkrip yang
+            bergerak.
           */}
-          <div className="flex h-svh flex-col-reverse overflow-hidden md:flex-row">
-            <OfficeSidebar authOn={authOn} />
-            <div className="min-w-0 flex-1 overflow-y-auto">{children}</div>
-          </div>
+          <div className="h-svh overflow-hidden">{children}</div>
         </ThemeProvider>
       </body>
     </html>
@@ -75,10 +71,40 @@ export default function RootLayout({
 
   return (
     <ClerkProvider
+      /*
+       * Permukaan Clerk diwarnai lewat API-nya sendiri, bukan lewat kelas
+       * Tailwind di tiap elemen. Dua alasan, dan keduanya pernah menggigit:
+       *
+       *  1. Clerk memasang gaya buatannya sendiri pada elemen-elemennya, dan
+       *     gaya itu mengalahkan kelas utilitas — bahkan yang bertanda `!`.
+       *     Yang ditulis di `appearance.elements` jadi terlihat terpasang
+       *     padahal mati.
+       *  2. Kartu login, popover akun, dan pemilih perusahaan dirender ke
+       *     portal di luar pohon halaman. Mewarnainya satu per satu berarti
+       *     mengejar setiap permukaan baru yang Clerk tambahkan.
+       *
+       * Nilainya adalah VARIABEL CSS, bukan warna mati: kelas `dark` menempel
+       * di <html> dan menurun sampai ke portal, jadi permukaan Clerk berganti
+       * tema bersama halamannya tanpa provider ini perlu tahu tema yang
+       * sedang aktif — yang memang mustahil, karena ia dirender di server.
+       */
       appearance={{
         variables: {
+          colorPrimary: "var(--term-prompt)",
+          colorPrimaryForeground: "var(--primary-foreground)",
+          colorBackground: "var(--popover)",
+          colorForeground: "var(--foreground)",
+          colorMuted: "var(--muted)",
+          colorMutedForeground: "var(--muted-foreground)",
+          colorBorder: "var(--border)",
+          colorInput: "var(--card)",
+          colorInputForeground: "var(--foreground)",
+          colorRing: "var(--ring)",
+          colorDanger: "var(--destructive)",
+          colorWarning: "var(--term-warn)",
           borderRadius: "0px",
           fontFamily: "var(--font-geist-mono), ui-monospace, monospace",
+          fontFamilyButtons: "var(--font-geist-mono), ui-monospace, monospace",
         },
       }}
     >

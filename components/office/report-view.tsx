@@ -1,4 +1,6 @@
-import Link from "next/link";
+"use client";
+
+import { createContext, useContext } from "react";
 
 import { TermBlock, TermGutter } from "@/components/terminal/primitives";
 import type {
@@ -11,28 +13,40 @@ import type {
 import { cn } from "@/lib/utils";
 
 /**
- * Layar depan Clawmpany.
+ * Laporan kantor, dirender sebagai blok di dalam percakapan.
  *
  * Urutannya bukan selera: yang menuntut keputusan manusia ditaruh paling atas,
  * angka ringkasan di bawahnya, daftar lengkap paling akhir. Pemilik perusahaan
- * membuka ini di sela pekerjaan lain — kalau tidak ada yang perlu dia putuskan,
- * dia harus bisa tahu itu dalam satu pandangan lalu menutupnya lagi.
+ * memintanya di sela pekerjaan lain — kalau tidak ada yang perlu dia putuskan,
+ * dia harus bisa tahu itu dalam satu pandangan lalu melanjutkan mengetik.
+ *
+ * Setiap nama karyawan dulu tautan ke /agent/[id]. Halaman itu sudah tidak ada:
+ * keempat panel pengaturannya kini isi `AgentDialog`, yang terbuka DI ATAS
+ * percakapan alih-alih menggantikannya. Jadi yang dibawa nama sekarang bukan
+ * href melainkan pemanggil — dan pemanggilnya dititipkan lewat context, bukan
+ * prop, supaya tidak ada empat lapis komponen yang meneruskan satu fungsi yang
+ * hanya dipakai di dasar pohon.
  */
-export function ReportView({ report }: { report: OfficeReport }) {
+const OpenAgentContext = createContext<((id: string, name: string) => void) | null>(null);
+
+export function ReportView({
+  report,
+  onOpenAgent,
+}: {
+  report: OfficeReport;
+  /** Kosong = nama karyawan jadi teks biasa, bukan tombol. */
+  onOpenAgent?: (id: string, name: string) => void;
+}) {
   const { headcount, activity, attention, staff, schedules } = report;
 
   return (
+    <OpenAgentContext value={onOpenAgent ?? null}>
     <div className="space-y-6">
-      <div className="flex flex-wrap items-baseline justify-between gap-2">
-        <h1 className="text-lg">{report.officeName}</h1>
-        <span className="text-term-dim text-[11px]">{today()}</span>
-      </div>
-
       {report.error ? (
-        <TermBlock label="Tidak bisa membaca kantor" tone="warn">
+        <TermBlock label="could not read the office" tone="warn">
           <p className="text-sm">{report.error}</p>
           <p className="text-term-dim mt-1.5 text-xs">
-            Data di bawah mungkin tidak lengkap. Coba muat ulang sebentar lagi.
+            What follows may be incomplete. Try again in a moment.
           </p>
         </TermBlock>
       ) : null}
@@ -41,27 +55,27 @@ export function ReportView({ report }: { report: OfficeReport }) {
 
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
         <Stat
-          label="Karyawan"
+          label="Employees"
           value={String(headcount.total)}
           detail={
             headcount.unconfigured > 0
-              ? `${headcount.unconfigured} belum siap kerja`
-              : "semua sudah punya identitas"
+              ? `${headcount.unconfigured} not ready to work`
+              : "all have an identity"
           }
           tone={headcount.unconfigured > 0 ? "warn" : "default"}
         />
         <Stat
-          label="24 jam terakhir"
+          label="last 24 hours"
           value={String(activity.sessions24h)}
           detail={
             activity.sessions24h === 0
-              ? "tidak ada yang bekerja"
-              : `sesi · ${activity.activeAgents24h} agent bergerak`
+              ? "no one worked"
+              : `sessions · ${activity.activeAgents24h} agents moved`
           }
           tone={activity.sessions24h === 0 ? "warn" : "default"}
         />
         <Stat
-          label="Jadwal aktif"
+          label="active schedules"
           value={String(schedules.filter((s) => s.enabled).length)}
           detail={nextRunLabel(schedules)}
           tone={schedules.some((s) => s.enabled) ? "default" : "warn"}
@@ -72,6 +86,37 @@ export function ReportView({ report }: { report: OfficeReport }) {
       <StaffPanel staff={staff} />
       <SchedulePanel rows={schedules} />
     </div>
+    </OpenAgentContext>
+  );
+}
+
+/**
+ * Nama karyawan yang bisa diklik untuk membuka pengaturannya — atau teks biasa
+ * kalau layar yang memasang laporan ini tidak menyediakan pintunya.
+ */
+function AgentName({
+  id,
+  name,
+  className,
+}: {
+  id: string;
+  name: string;
+  className?: string;
+}) {
+  const open = useContext(OpenAgentContext);
+  if (!open) return <span className={className}>{name}</span>;
+  return (
+    <button
+      type="button"
+      onClick={() => open(id, name)}
+      title={`Manage ${name}`}
+      className={cn(
+        "hover:text-term-prompt focus-visible:ring-ring cursor-pointer text-left transition-colors focus-visible:ring-1 focus-visible:outline-none",
+        className,
+      )}
+    >
+      {name}
+    </button>
   );
 }
 
@@ -80,11 +125,11 @@ export function ReportView({ report }: { report: OfficeReport }) {
 function AttentionPanel({ items }: { items: AttentionItem[] }) {
   if (items.length === 0) {
     return (
-      <TermBlock label="Butuh keputusan kamu">
+      <TermBlock label="needs your decision">
         <p className="text-sm">
           <TermGutter marker="·" className="text-term-dim" />
-          Tidak ada. Semua karyawan punya identitas dan jadwal, dan tidak ada
-          jadwal yang gagal.
+          Nothing. Every employee has an identity and a schedule, and no
+          schedule is failing.
         </p>
       </TermBlock>
     );
@@ -94,7 +139,7 @@ function AttentionPanel({ items }: { items: AttentionItem[] }) {
 
   return (
     <TermBlock
-      label={`Butuh keputusan kamu · ${items.length}`}
+      label={`needs your decision · ${items.length}`}
       tone={blocked > 0 ? "warn" : "default"}
     >
       <ul className="space-y-2.5">
@@ -163,31 +208,26 @@ function Stat({
 function WorkPanel({ items }: { items: WorkItem[] }) {
   if (items.length === 0) {
     return (
-      <TermBlock label="Hasil kerja" tone="dim">
+      <TermBlock label="work produced" tone="dim">
         <p className="text-term-dim text-xs">
-          Belum ada satu pun. Begitu karyawan menjalankan jadwalnya, hasilnya
-          muncul di sini — dan inilah halaman yang perlu kamu buka tiap pagi.
+          None yet. The moment an employee runs its schedule, what it produced
+          shows up here — this is the part worth reading each morning.
         </p>
       </TermBlock>
     );
   }
 
   return (
-    <TermBlock label={`Hasil kerja · ${items.length}`}>
+    <TermBlock label={`work produced · ${items.length}`}>
       <ul className="divide-border divide-y">
         {items.map((w) => (
           <li key={`${w.agentId}:${w.at ?? w.title}`} className="py-2.5 first:pt-0 last:pb-0">
             <div className="flex flex-wrap items-baseline gap-x-2">
-              <Link
-                href={`/agent/${encodeURIComponent(w.agentId)}`}
-                className="hover:text-term-prompt text-sm transition-colors"
-              >
-                {w.agentName}
-              </Link>
+              <AgentName id={w.agentId} name={w.agentName} className="text-sm" />
               <span className="text-term-dim text-xs">{w.title}</span>
               <span className="text-term-dim ml-auto text-[11px]">
                 <span className={w.scheduled ? "text-term-prompt" : "text-term-dim"}>
-                  {w.scheduled ? "terjadwal" : "diminta"}
+                  {w.scheduled ? "scheduled" : "asked"}
                 </span>
                 {w.at ? ` · ${shortTime(w.at)}` : ""}
               </span>
@@ -209,30 +249,26 @@ function StaffPanel({ staff }: { staff: StaffMember[] }) {
   if (staff.length === 0) return null;
 
   return (
-    <TermBlock label={`Karyawan · ${staff.length}`}>
+    <TermBlock label={`employees · ${staff.length}`}>
       <ul className="divide-border divide-y">
         {staff.map((s) => (
           <li key={s.id} className="py-2 first:pt-0 last:pb-0">
-            <Link href={`/agent/${encodeURIComponent(s.id)}`} className="group block">
-              <div className="flex flex-wrap items-baseline gap-x-2">
-                <span className="group-hover:text-term-prompt text-sm transition-colors">
-                  {s.name}
+            <div className="flex flex-wrap items-baseline gap-x-2">
+              <AgentName id={s.id} name={s.name} className="text-sm" />
+              {!s.configured ? (
+                <span className="text-term-warn text-[10px] tracking-wider uppercase">
+                  empty seat
                 </span>
-                {!s.configured ? (
-                  <span className="text-term-warn text-[10px] tracking-wider uppercase">
-                    kursi kosong
-                  </span>
-                ) : null}
-                <span className="text-term-dim ml-auto text-[11px]">
-                  {s.scheduleCount > 0 ? `${s.scheduleCount} jadwal` : "tanpa jadwal"}
-                  {" · "}
-                  {s.toolCount > 0 ? `${s.toolCount} alat` : "tanpa alat"}
-                  {" · "}
-                  {s.recentSessions > 0 ? `${s.recentSessions} sesi/24j` : "diam"}
-                </span>
-              </div>
-              <div className="text-term-dim mt-0.5 text-xs">{s.role}</div>
-            </Link>
+              ) : null}
+              <span className="text-term-dim ml-auto text-[11px]">
+                {s.scheduleCount > 0 ? `${s.scheduleCount} schedules` : "no schedule"}
+                {" · "}
+                {s.toolCount > 0 ? `${s.toolCount} tools` : "no tools"}
+                {" · "}
+                {s.recentSessions > 0 ? `${s.recentSessions} sessions/24h` : "idle"}
+              </span>
+            </div>
+            <div className="text-term-dim mt-0.5 text-xs">{s.role}</div>
           </li>
         ))}
       </ul>
@@ -245,17 +281,17 @@ function StaffPanel({ staff }: { staff: StaffMember[] }) {
 function SchedulePanel({ rows }: { rows: ScheduleRow[] }) {
   if (rows.length === 0) {
     return (
-      <TermBlock label="Jadwal kerja" tone="dim">
+      <TermBlock label="work schedule" tone="dim">
         <p className="text-term-dim text-xs">
-          Belum ada jadwal. Selama belum ada, agent hanya bekerja saat kamu
-          menyuruhnya — dan itu berarti kamu tetap yang jadi mesinnya.
+          No schedules yet. Until there are, an agent only works when you tell
+          it to — which means you are still the machine.
         </p>
       </TermBlock>
     );
   }
 
   return (
-    <TermBlock label={`Jadwal kerja · ${rows.length}`}>
+    <TermBlock label={`work schedule · ${rows.length}`}>
       <ul className="divide-border divide-y">
         {rows.map((r) => (
           <li key={`${r.agentId}:${r.jobId}`} className="py-2 first:pt-0 last:pb-0">
@@ -269,9 +305,9 @@ function SchedulePanel({ rows }: { rows: ScheduleRow[] }) {
               </span>
             </div>
             <div className="text-term-dim mt-0.5 text-[11px]">
-              {r.cron ? <code>{r.cron}</code> : "tanpa pola"}
-              {r.nextRunAt ? ` · berikutnya ${shortTime(r.nextRunAt)}` : ""}
-              {r.lastRunAt ? ` · terakhir ${shortTime(r.lastRunAt)}` : " · belum pernah jalan"}
+              {r.cron ? <code>{r.cron}</code> : "no pattern"}
+              {r.nextRunAt ? ` · next ${shortTime(r.nextRunAt)}` : ""}
+              {r.lastRunAt ? ` · last ${shortTime(r.lastRunAt)}` : " · never run"}
             </div>
             {r.lastError ? (
               <div className="text-term-warn mt-0.5 text-[11px]">{r.lastError.slice(0, 180)}</div>
@@ -284,8 +320,8 @@ function SchedulePanel({ rows }: { rows: ScheduleRow[] }) {
 }
 
 function StatusTag({ enabled, status }: { enabled: boolean; status: string | null }) {
-  if (!enabled) return <span className="text-term-dim">mati</span>;
-  if (!status) return <span className="text-term-dim">menunggu</span>;
+  if (!enabled) return <span className="text-term-dim">off</span>;
+  if (!status) return <span className="text-term-dim">waiting</span>;
   if (status === "success") return <span className="text-term-prompt">ok</span>;
   return <span className="text-term-warn">{status}</span>;
 }
@@ -293,16 +329,6 @@ function StatusTag({ enabled, status }: { enabled: boolean; status: string | nul
 // ── Format ──────────────────────────────────────────────────────
 
 const TZ = "Asia/Jakarta";
-
-function today(): string {
-  return new Intl.DateTimeFormat("id-ID", {
-    weekday: "long",
-    day: "numeric",
-    month: "long",
-    year: "numeric",
-    timeZone: TZ,
-  }).format(new Date());
-}
 
 function shortTime(iso: string): string {
   const t = Date.parse(iso);
@@ -322,6 +348,6 @@ function nextRunLabel(rows: ScheduleRow[]): string {
     .map((r) => r.nextRunAt!)
     .sort()
     .at(0);
-  if (!next) return "tidak ada yang terjadwal";
-  return `berikutnya ${shortTime(next)}`;
+  if (!next) return "nothing scheduled";
+  return `next ${shortTime(next)}`;
 }
